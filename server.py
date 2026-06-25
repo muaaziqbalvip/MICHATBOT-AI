@@ -9,23 +9,21 @@ from pyngrok import ngrok, exception
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
-app = FastAPI(title="MI AI Qwen Urdu Engine")
-MODEL_PATH = "./model_files"  # YML file isi folder me download karegi
+app = FastAPI(title="MI AI Qwen Fixed Engine")
+MODEL_PATH = "./model_files"
 
-# Ngrok Token Check
 auth_token = os.getenv("NGROK_AUTH_TOKEN")
 if not auth_token or auth_token.strip() == "":
     print("\nCRITICAL ERROR: NGROK_AUTH_TOKEN missing!")
     sys.exit(1)
 
-print("Booting miai-v1 (Qwen-0.5B) Engine...")
-# Qwen ka tokenizer aur model load karna local folder se
+print("Booting Fixed Qwen Engine...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
 model = AutoModelForCausalLM.from_pretrained(MODEL_PATH, torch_dtype=torch.float32)
-print("Qwen Model Loaded Successfully into GitHub RAM!")
+print("Qwen Model Loaded 100%!")
 
-# Qwen ke liye short aur clear guide line taaki fast aur sahi Urdu bole
-SYSTEM_PROMPT = "Aap ek madadgaar AI assistant hain jo hamesha Roman Urdu ya Urdu me short aur bilkul sahi jawab deta hai."
+# Ekdum simple system prompt
+SYSTEM_PROMPT = "Aap ek AI assistant hain. Hamesha user ke sawal ka short aur clear jawab Roman Urdu ya Hindi me dein."
 
 class Message(BaseModel):
     role: str
@@ -34,27 +32,26 @@ class Message(BaseModel):
 class ChatCompletionRequest(BaseModel):
     model: str = "miai-v1"
     messages: List[Message]
-    temperature: Optional[float] = 0.5  # Stable responses ke liye perfect hai
-    max_tokens: Optional[int] = 120     # Chote aur fast answers ke liye tokens limit optimized hai
+    temperature: Optional[float] = 0.3  # Isko kam rakha hai taaki pagal na ho
+    max_tokens: Optional[int] = 100
 
 @app.post("/v1/chat/completions")
 def chat(request: ChatCompletionRequest):
     try:
-        # 1. Messages array build karna standard format me
-        formatted_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        # --- QWEN OFFICIAL HARDCODED CHATML FORMAT ---
+        # Qwen model is structure ko 100% samajhta hai
+        full_prompt = f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
+        
         for msg in request.messages:
-            formatted_messages.append({"role": msg.role, "content": msg.content})
-
-        # 2. Qwen ka official chat template apply karna (Repetition aur prompt leak fix)
-        full_prompt = tokenizer.apply_chat_template(
-            formatted_messages, 
-            tokenize=False, 
-            add_generation_prompt=True
-        )
+            # Agar system prompt user dobara bhej raha ho toh bypass karein
+            if msg.role == "system":
+                continue
+            full_prompt += f"<|im_start|>{msg.role}\n{msg.content}<|im_end|>\n"
+            
+        full_prompt += "<|im_start|>assistant\n"
 
         inputs = tokenizer(full_prompt, return_tensors="pt")
         
-        # 3. Generation Logic
         with torch.no_grad():
             outputs = model.generate(
                 **inputs, 
@@ -65,10 +62,16 @@ def chat(request: ChatCompletionRequest):
                 eos_token_id=tokenizer.eos_token_id
             )
             
-        # 4. Sirf aur sirf fresh generated jawab nikalna (Sawal ko minus karna)
+        # Sirf naya answer cut karna
         input_len = inputs.input_ids.shape[1]
         generated_tokens = outputs[0][input_len:]
         response_content = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
+
+        # Safai: Agar model extra tags print kare toh urana
+        if "<|im_end|>" in response_content:
+            response_content = response_content.split("<|im_end|>")[0].strip()
+        if "assistant" in response_content:
+            response_content = response_content.replace("assistant", "").strip()
 
         return {
             "id": "chatcmpl-miai-v1",

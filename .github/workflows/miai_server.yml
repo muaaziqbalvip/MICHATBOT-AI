@@ -1,0 +1,69 @@
+name: MI AI 24/7 Engine Loop & Vercel Sync
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Auto-loop triggers every 6 hours perfectly
+  workflow_dispatch:
+
+jobs:
+  run-engine:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Cache AI Model Storage
+      id: cache-model
+      uses: actions/cache@v4
+      with:
+        path: ./model_files
+        key: ${{ runner.os }}-miai-v1-cache
+
+    - name: Download miai-v1 Core File
+      run: |
+        mkdir -p model_files
+        if [ "${{ steps.cache-model.outputs.cache-hit }}" != "true" ]; then
+          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/config.json" -o ./model_files/config.json
+          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/tokenizer.json" -o ./model_files/tokenizer.json
+          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/tokenizer_config.json" -o ./model_files/tokenizer_config.json
+          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/special_tokens_map.json" -o ./model_files/special_tokens_map.json
+          # Aapka original Hugging Face download link
+          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/model.safetensors?download=true" -o ./model_files/model.safetensors
+        fi
+
+    - name: Setup Dependencies & Vercel CLI
+      run: |
+        python -m pip install --upgrade pip
+        pip install fastapi uvicorn transformers torch pyngrok requests
+        npm install -g vercel
+
+    - name: Launch Engine & Sync With Vercel Gateway
+      env:
+        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+        VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      run: |
+        # Core python API ko background process me run karna
+        python server.py &
+        
+        # Tunnel ready hone ka wait time
+        sleep 20
+        
+        # Extracted Link from Ngrok
+        PUBLIC_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | python3 -c "import sys, json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])")
+        echo "Successfully fetched Tunnel URL: $PUBLIC_URL"
+        
+        # Auto-inject env variable into Vercel production deployment
+        vercel env rm GITHUB_SERVER_URL production -y --token=$VERCEL_TOKEN || true
+        vercel env add GITHUB_SERVER_URL production $PUBLIC_URL --token=$VERCEL_TOKEN
+        
+        echo "Vercel Sync Completed! miai-v1 is globally open."
+        # Keep GitHub active till 6 hours limit
+        wait

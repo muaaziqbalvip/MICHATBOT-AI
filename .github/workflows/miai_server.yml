@@ -1,8 +1,8 @@
-name: MI AI 24/7 Engine Loop & Vercel Sync
+name: MI AI 24-7 Engine Loop & Vercel Sync
 
 on:
   schedule:
-    - cron: '0 */6 * * *' # Auto-loop triggers every 6 hours perfectly
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 jobs:
@@ -10,60 +10,93 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
-    - name: Cache AI Model Storage
-      id: cache-model
-      uses: actions/cache@v4
-      with:
-        path: ./model_files
-        key: ${{ runner.os }}-miai-v1-cache
+      - name: Cache AI Model Storage
+        id: cache-model
+        uses: actions/cache@v4
+        with:
+          path: ./model_files
+          key: ${{ runner.os }}-miai-v1-cache
 
-    - name: Download miai-v1 Core File
-      run: |
-        mkdir -p model_files
-        if [ "${{ steps.cache-model.outputs.cache-hit }}" != "true" ]; then
-          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/config.json" -o ./model_files/config.json
-          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/tokenizer.json" -o ./model_files/tokenizer.json
-          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/tokenizer_config.json" -o ./model_files/tokenizer_config.json
-          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/special_tokens_map.json" -o ./model_files/special_tokens_map.json
-          # Aapka original Hugging Face download link
-          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/model.safetensors?download=true" -o ./model_files/model.safetensors
-        fi
+      - name: Download miai-v1 Core File
+        run: |
+          mkdir -p model_files
+          if [ "${{ steps.cache-model.outputs.cache-hit }}" != "true" ]; then
+            curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/config.json" -o ./model_files/config.json
+            curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/tokenizer.json" -o ./model_files/tokenizer.json
+            curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/tokenizer_config.json" -o ./model_files/tokenizer_config.json
+            curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/special_tokens_map.json" -o ./model_files/special_tokens_map.json
+            curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/model.safetensors?download=true" -o ./model_files/model.safetensors
+          fi
 
-    - name: Setup Dependencies & Vercel CLI
-      run: |
-        python -m pip install --upgrade pip
-        pip install fastapi uvicorn transformers torch pyngrok requests
-        npm install -g vercel
+      - name: Setup Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi uvicorn transformers torch pyngrok requests
 
-    - name: Launch Engine & Sync With Vercel Gateway
-      env:
-        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
-        VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-        VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-        VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      run: |
-        # Core python API ko background process me run karna
-        python server.py &
-        
-        # Tunnel ready hone ka wait time
-        sleep 20
-        
-        # Extracted Link from Ngrok
-        PUBLIC_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | python3 -c "import sys, json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])")
-        echo "Successfully fetched Tunnel URL: $PUBLIC_URL"
-        
-        # Auto-inject env variable into Vercel production deployment
-        vercel env rm GITHUB_SERVER_URL production -y --token=$VERCEL_TOKEN || true
-        vercel env add GITHUB_SERVER_URL production $PUBLIC_URL --token=$VERCEL_TOKEN
-        
-        echo "Vercel Sync Completed! miai-v1 is globally open."
-        # Keep GitHub active till 6 hours limit
-        wait
+      - name: Launch Engine & Sync With Vercel Gateway
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_NAME: ${{ secrets.VERCEL_PROJECT_NAME }}
+        run: |
+          # Server start karna background mein
+          python server.py &
+          
+          echo "Waiting for Model to load and Ngrok tunnel to initialize..."
+          
+          PUBLIC_URL=""
+          for i in {1..24}; do
+            sleep 5
+            PUBLIC_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'tunnels' in data and len(data['tunnels']) > 0:
+        print(data['tunnels'][0]['public_url'])
+except Exception:
+    pass
+" 2>/dev/null)
+            
+            if [ ! -z "$PUBLIC_URL" ]; then
+              echo "Tunnel found on attempt $i!"
+              break
+            fi
+            echo "Still waiting for tunnel setup... ($((i*5))s)"
+          done
+
+          if [ -z "$PUBLIC_URL" ]; then
+            echo "ERROR: Ngrok tunnel could not be established."
+            exit 1
+          fi
+
+          echo "Successfully fetched Tunnel URL: $PUBLIC_URL"
+          
+          echo "Updating Vercel Environment Variables via API..."
+          
+          # Purana Variable Delete Karna via API
+          curl -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}/env/GITHUB_SERVER_URL" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" || true
+          
+          # Naya Variable Add Karna via API
+          curl -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_NAME}/env" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"key\": \"GITHUB_SERVER_URL\",
+              \"value\": \"${PUBLIC_URL}\",
+              \"type\": \"plain\",
+              \"target\": [\"production\", \"preview\", \"development\"]
+            }"
+          
+          echo "Vercel Sync Completed Successfully! miai-v1 is globally open."
+          
+          # Keep server alive
+          sleep 21000

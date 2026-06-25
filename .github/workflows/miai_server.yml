@@ -23,17 +23,17 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ./model_files
-        key: ${{ runner.os }}-miai-v1-cache
+        key: ${{ runner.os }}-qwen2.5-0.5b-cache # Cache key updated for Qwen
 
     - name: Download miai-v1 Core File
       run: |
         mkdir -p model_files
         if [ "${{ steps.cache-model.outputs.cache-hit }}" != "true" ]; then
-          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/config.json" -o ./model_files/config.json
-          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/tokenizer.json" -o ./model_files/tokenizer.json
-          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/tokenizer_config.json" -o ./model_files/tokenizer_config.json
-          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/special_tokens_map.json" -o ./model_files/special_tokens_map.json
-          curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/model.safetensors?download=true" -o ./model_files/model.safetensors
+          # Qwen2.5-0.5B-Instruct Official Urdu-Supported Links
+          curl -L "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/config.json" -o ./model_files/config.json
+          curl -L "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json" -o ./model_files/tokenizer.json
+          curl -L "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer_config.json" -o ./model_files/tokenizer_config.json
+          curl -L "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct/resolve/main/model.safetensors?download=true" -o ./model_files/model.safetensors
         fi
 
     - name: Setup Dependencies
@@ -50,8 +50,8 @@ jobs:
         # Core python API ko background process me run karna
         python server.py &
         
-        # Tunnel ready hone ka wait time
-        sleep 20
+        # Qwen thoda bada model hai, isliye load hone ke liye 30 seconds wait safe rahega
+        sleep 30
         
         # Extracted Link from Ngrok
         PUBLIC_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | python3 -c "import sys, json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])")

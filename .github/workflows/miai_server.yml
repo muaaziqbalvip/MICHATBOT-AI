@@ -2,7 +2,7 @@ name: MI AI 24/7 Engine Loop & Vercel Sync
 
 on:
   schedule:
-    - cron: '0 */6 * * *' # Auto-loop triggers every 6 hours perfectly
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 jobs:
@@ -33,7 +33,6 @@ jobs:
           curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/tokenizer.json" -o ./model_files/tokenizer.json
           curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/tokenizer_config.json" -o ./model_files/tokenizer_config.json
           curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/special_tokens_map.json" -o ./model_files/special_tokens_map.json
-          # Aapka original Hugging Face download link
           curl -L "https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct/resolve/main/model.safetensors?download=true" -o ./model_files/model.safetensors
         fi
 
@@ -50,20 +49,40 @@ jobs:
         VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       run: |
-        # Core python API ko background process me run karna
         python server.py &
         
-        # Tunnel ready hone ka wait time
-        sleep 20
+        echo "Waiting for Model to load and Ngrok tunnel to initialize..."
         
-        # Extracted Link from Ngrok
-        PUBLIC_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | python3 -c "import sys, json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])")
+        PUBLIC_URL=""
+        for i in {1..24}; do
+          sleep 5
+          PUBLIC_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'tunnels' in data and len(data['tunnels']) > 0:
+        print(data['tunnels'][0]['public_url'])
+except Exception:
+    pass
+" 2>/dev/null)
+          
+          if [ ! -z "$PUBLIC_URL" ]; then
+            echo "Tunnel found on attempt $i!"
+            break
+          fi
+          echo "Still waiting for tunnel setup... ($((i*5))s)"
+        done
+
+        if [ -z "$PUBLIC_URL" ]; then
+          echo "ERROR: Ngrok tunnel could not be established. Check GitHub Secrets!"
+          exit 1
+        fi
+
         echo "Successfully fetched Tunnel URL: $PUBLIC_URL"
         
-        # Auto-inject env variable into Vercel production deployment
+        echo "Updating Vercel Environment Variables..."
         vercel env rm GITHUB_SERVER_URL production -y --token=$VERCEL_TOKEN || true
         vercel env add GITHUB_SERVER_URL production $PUBLIC_URL --token=$VERCEL_TOKEN
         
-        echo "Vercel Sync Completed! miai-v1 is globally open."
-        # Keep GitHub active till 6 hours limit
+        echo "Vercel Sync Completed Successfully! miai-v1 is globally open."
         wait

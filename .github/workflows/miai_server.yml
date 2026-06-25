@@ -47,11 +47,12 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_NAME: ${{ secrets.VERCEL_PROJECT_NAME }}
         run: |
-          # Server start karna background mein
+          # 1. Core API Backend start karna
           python server.py &
           
           echo "Waiting for Model to load and Ngrok tunnel to initialize..."
           
+          # 2. Ngrok Public Tunnel Link fetch karna loop me
           PUBLIC_URL=""
           for i in {1..24}; do
             sleep 5
@@ -79,24 +80,31 @@ except Exception:
 
           echo "Successfully fetched Tunnel URL: $PUBLIC_URL"
           
-          echo "Updating Vercel Environment Variables via API..."
-          
-          # Purana Variable Delete Karna via API
-          curl -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}/env/GITHUB_SERVER_URL" \
-            -H "Authorization: Bearer ${VERCEL_TOKEN}" || true
-          
-          # Naya Variable Add Karna via API
-          curl -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_NAME}/env" \
-            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{
-              \"key\": \"GITHUB_SERVER_URL\",
-              \"value\": \"${PUBLIC_URL}\",
-              \"type\": \"plain\",
-              \"target\": [\"production\", \"preview\", \"development\"]
-            }"
+          # 3. Safe Python Inline script to sync with Vercel API without YAML character errors
+          echo "Updating Vercel Environment Variables via Python API..."
+          python3 -c "
+import os, requests
+token = os.getenv('VERCEL_TOKEN')
+project = os.getenv('VERCEL_PROJECT_NAME')
+url = os.getenv('PUBLIC_URL')
+
+headers = {'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'}
+
+# Purana variable delete karna (ignore failure if doesn't exist)
+requests.delete(f'https://api.vercel.com/v9/projects/{project}/env/GITHUB_SERVER_URL', headers=headers)
+
+# Naya variable set karna
+payload = {
+    'key': 'GITHUB_SERVER_URL',
+    'value': url,
+    'type': 'plain',
+    'target': ['production', 'preview', 'development']
+}
+res = requests.post(f'https://api.vercel.com/v10/projects/{project}/env', headers=headers, json=payload)
+print('Vercel API Response:', res.status_code, res.text)
+"
           
           echo "Vercel Sync Completed Successfully! miai-v1 is globally open."
           
-          # Keep server alive
+          # Server loop backup sleep duration (5 hours 50 mins)
           sleep 21000

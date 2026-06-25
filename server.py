@@ -9,7 +9,7 @@ from pyngrok import ngrok, exception
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
-app = FastAPI(title="MI AI Core Engine Optimized")
+app = FastAPI(title="MI AI Pure Core")
 MODEL_PATH = "./model_files"
 
 auth_token = os.getenv("NGROK_AUTH_TOKEN")
@@ -17,13 +17,10 @@ if not auth_token or auth_token.strip() == "":
     print("\nCRITICAL ERROR: NGROK_AUTH_TOKEN missing!")
     sys.exit(1)
 
-print("Booting miai-v1 Optimized Engine...")
+print("Booting miai-v1 Pure Engine...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
 model = AutoModelForCausalLM.from_pretrained(MODEL_PATH, torch_dtype=torch.float32)
-print("miai-v1 Model Loaded Successfully!")
-
-# To-the-point clean prompt takay CPU par load na pare aur fast chale
-SYSTEM_PROMPT = "Aapka naam 'miai-v1' hai. Aapko Muaaz ne banaya hai. Hamesha short, sweet aur aqalmandi se Roman Urdu/Hindi me jawab dein."
+print("miai-v1 Model Loaded!")
 
 class Message(BaseModel):
     role: str
@@ -32,18 +29,18 @@ class Message(BaseModel):
 class ChatCompletionRequest(BaseModel):
     model: str = "miai-v1"
     messages: List[Message]
-    temperature: Optional[float] = 0.5  # Temperature kam karne se speed behtar hoti hai aur bakwas band hoti hai
-    max_tokens: Optional[int] = 120     # Max tokens kam rakhne se response bohot fast generate hota hai
+    temperature: Optional[float] = 0.3  # Temperature kam rakhne se model be-tuki baatein nahi karega
+    max_tokens: Optional[int] = 80      # Chote aur fast answers ke liye tokens limit kam kar di
 
 @app.post("/v1/chat/completions")
 def chat(request: ChatCompletionRequest):
     try:
-        # 1. Hugging Face Official Format me messages build karna
-        formatted_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        # Koi system prompt nahi, direct user ke messages ko template me dalna
+        formatted_messages = []
         for msg in request.messages:
             formatted_messages.append({"role": msg.role, "content": msg.content})
 
-        # 2. Tokenizer ka official chat template tool (Yeh speed 5 guna badha dega)
+        # Official HuggingFace format apply karna bina kisi external instructions ke
         full_prompt = tokenizer.apply_chat_template(
             formatted_messages, 
             tokenize=False, 
@@ -52,7 +49,6 @@ def chat(request: ChatCompletionRequest):
 
         inputs = tokenizer(full_prompt, return_tensors="pt")
         
-        # 3. Fast Generation Logic
         with torch.no_grad():
             outputs = model.generate(
                 **inputs, 
@@ -63,7 +59,7 @@ def chat(request: ChatCompletionRequest):
                 eos_token_id=tokenizer.eos_token_id
             )
             
-        # 4. Extract only the freshly generated response
+        # Sirf aur sirf fresh generated raw text pick karna
         input_len = inputs.input_ids.shape[1]
         generated_tokens = outputs[0][input_len:]
         response_content = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()

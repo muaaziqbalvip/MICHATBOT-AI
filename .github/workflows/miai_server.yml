@@ -80,14 +80,14 @@ except Exception:
           exit 1
         fi
 
-        echo "Successfully fetched Tunnel URL: $PUBLIC_URL"
+         echo "Successfully fetched Tunnel URL: $PUBLIC_URL"
         
         # Auto-inject environment variable into Vercel production
-        echo "Updating Vercel Environment Variables..."
+         echo "Updating Vercel Environment Variables..."
         vercel env rm GITHUB_SERVER_URL production -y --token=$VERCEL_TOKEN || true
         vercel env add GITHUB_SERVER_URL production $PUBLIC_URL --token=$VERCEL_TOKEN
         
-        echo "Vercel Sync Completed Successfully! miai-v1 is globally open."
+         echo "Vercel Sync Completed Successfully! miai-v1 is globally open."
         
         # Keep GitHub active to handle API hits indefinitely (up to 6 hours limit)
         wait

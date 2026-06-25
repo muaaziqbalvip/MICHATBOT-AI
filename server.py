@@ -6,12 +6,19 @@ import threading
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
-from pyngrok import ngrok
+from pyngrok import ngrok, exception
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
 app = FastAPI(title="MI AI Core Engine")
 MODEL_PATH = "./model_files"
+
+# Check token before doing heavy loading
+auth_token = os.getenv("NGROK_AUTH_TOKEN")
+if not auth_token or auth_token.strip() == "":
+    print("\nCRITICAL ERROR: NGROK_AUTH_TOKEN is completely empty in GitHub Secrets!")
+    print("Please add it under Settings -> Secrets and variables -> Actions -> Repository secrets\n")
+    sys.exit(1)
 
 print("Booting miai-v1 Engine...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
@@ -63,13 +70,13 @@ def chat(request: ChatCompletionRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 def start_ngrok():
-    auth_token = os.getenv("NGROK_AUTH_TOKEN")
-    if not auth_token:
-        print("NGROK TOKEN MISSING!")
+    try:
+        ngrok.set_auth_token(auth_token)
+        public_url = ngrok.connect(8000)
+        print(f"\n[ENGINE LIVE] Public Ngrok Tunnel: {public_url.public_url}\n")
+    except exception.PyngrokNgrokError as e:
+        print(f"Ngrok Boot Error: {str(e)}")
         sys.exit(1)
-    ngrok.set_auth_token(auth_token)
-    public_url = ngrok.connect(8000)
-    print(f"\n[ENGINE LIVE] Public Ngrok Tunnel: {public_url.public_url}\n")
 
 if __name__ == "__main__":
     t = threading.Thread(target=start_ngrok)

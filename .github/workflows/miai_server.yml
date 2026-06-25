@@ -2,8 +2,8 @@ name: MI AI 24/7 Engine Loop & Vercel Sync
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
-  workflow_dispatch:
+    - cron: '0 */6 * * *' # Har 6 ghante baad restart hoga automatically
+  workflow_dispatch: # Manual run button
 
 jobs:
   run-engine:
@@ -49,10 +49,12 @@ jobs:
         VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       run: |
+        # Core python API ko background process me chalana
         python server.py &
         
         echo "Waiting for Model to load and Ngrok tunnel to initialize..."
         
+        # Smart Wait Loop (Max 120 seconds wait karega jab tak link ready nahi hoti)
         PUBLIC_URL=""
         for i in {1..24}; do
           sleep 5
@@ -74,15 +76,18 @@ except Exception:
         done
 
         if [ -z "$PUBLIC_URL" ]; then
-          echo "ERROR: Ngrok tunnel could not be established. Check GitHub Secrets!"
+          echo "ERROR: Ngrok tunnel could not be established. Check if NGROK_AUTH_TOKEN is valid!"
           exit 1
         fi
 
         echo "Successfully fetched Tunnel URL: $PUBLIC_URL"
         
+        # Auto-inject environment variable into Vercel production
         echo "Updating Vercel Environment Variables..."
         vercel env rm GITHUB_SERVER_URL production -y --token=$VERCEL_TOKEN || true
         vercel env add GITHUB_SERVER_URL production $PUBLIC_URL --token=$VERCEL_TOKEN
         
         echo "Vercel Sync Completed Successfully! miai-v1 is globally open."
+        
+        # Keep GitHub active to handle API hits indefinitely (up to 6 hours limit)
         wait

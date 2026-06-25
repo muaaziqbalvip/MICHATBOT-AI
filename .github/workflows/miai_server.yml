@@ -79,7 +79,7 @@ except Exception:
           echo "ERROR: Ngrok tunnel could not be established. Check if NGROK_AUTH_TOKEN is valid!"
           exit 1
         fi
-echo "Successfully fetched Tunnel URL: $PUBLIC_URL"
+          echo "Successfully fetched Tunnel URL: $PUBLIC_URL"
         
         # Auto-inject environment variable into Vercel production
          echo "Updating Vercel Environment Variables..."

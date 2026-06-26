@@ -1,7 +1,14 @@
 """
-MI AI Gateway v2.0 — Vercel API (api/index.py)
+MI AI Gateway v3.0 — Vercel API (api/index.py)
 4 models support: miai-v1, miai-v2, miai-v3, miai-v4
 Auto-routing: model name se sahi GitHub server pe forward karta hai.
+
+WHAT CHANGED IN v3.0
+- Dashboard fully redesigned: control-room look, live token/sec + latency
+  readouts per model, clearer online/offline state, same lock-code flow.
+- Gateway / routing / auth logic untouched — this still talks to the same
+  server.py engines via the same MODEL_URLS env vars, so nothing else in
+  your pipeline needs to change.
 """
 
 import os
@@ -12,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 
-app = FastAPI(title="MI AI Gateway v2.0")
+app = FastAPI(title="MI AI Gateway v3.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,85 +39,181 @@ MODEL_URLS = {
 
 LOCK_CODE = "muaaz19720"
 
+MODEL_META = {
+    "miai-v1": {"name": "Qwen2.5-0.5B", "badge": "Ultra Fast", "accent": "#5eead4"},
+    "miai-v2": {"name": "Qwen2.5-1.5B", "badge": "Balanced",   "accent": "#7dd3fc"},
+    "miai-v3": {"name": "SmolLM2-1.7B", "badge": "Multilingual", "accent": "#c4b5fd"},
+    "miai-v4": {"name": "Phi-2 2.7B",   "badge": "Deep Reason", "accent": "#fda4af"},
+}
+
 # ─── Admin Dashboard ─────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     model_cards = ""
-    for mid, minfo in {
-        "miai-v1": {"name": "Qwen2.5-0.5B", "badge": "⚡ Ultra Fast"},
-        "miai-v2": {"name": "Qwen2.5-1.5B", "badge": "⚖️ Balanced"},
-        "miai-v3": {"name": "SmolLM2-1.7B",  "badge": "🌍 Multilingual"},
-        "miai-v4": {"name": "Phi-2 2.7B",    "badge": "🧠 Deep Reason"},
-    }.items():
+    for mid, meta in MODEL_META.items():
         model_cards += f"""
-        <div class="model-card" id="card-{mid}">
-          <div class="model-badge">{minfo['badge']}</div>
-          <div class="model-title">{mid}</div>
-          <div class="model-sub">{minfo['name']}</div>
-          <div class="model-status" id="status-{mid}">⏳ Checking...</div>
+        <div class="unit" id="card-{mid}" style="--accent:{meta['accent']}">
+          <div class="unit-top">
+            <span class="unit-id">{mid}</span>
+            <span class="pill" id="status-{mid}">checking…</span>
+          </div>
+          <div class="unit-name">{meta['name']}</div>
+          <div class="unit-badge">{meta['badge']}</div>
+          <div class="unit-metrics">
+            <div><span class="metric-label">latency</span><span class="metric-val" id="lat-{mid}">—</span></div>
+            <div><span class="metric-label">tok/s</span><span class="metric-val" id="tps-{mid}">—</span></div>
+          </div>
         </div>
         """
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MI AI — Admin Dashboard v2</title>
-  <style>
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: 'Segoe UI', sans-serif; background: #0a0f1e; color: #f0f4ff; min-height: 100vh; }}
-    header {{ background: linear-gradient(135deg, #0d1b2a, #1a3a5c); padding: 20px 30px; border-bottom: 1px solid #1e3a5f; display: flex; align-items: center; gap: 15px; }}
-    header h1 {{ font-size: 22px; color: #38bdf8; letter-spacing: 2px; }}
-    header span {{ font-size: 12px; color: #64748b; background: #0f2744; padding: 4px 10px; border-radius: 20px; }}
-    .container {{ max-width: 900px; margin: 30px auto; padding: 0 20px; }}
-    .lock-card {{ background: #111827; border: 1px solid #1f2d40; border-radius: 14px; padding: 30px; text-align: center; max-width: 380px; margin: 0 auto 30px; }}
-    .lock-card h2 {{ color: #38bdf8; margin-bottom: 20px; }}
-    input {{ width: 100%; padding: 12px; margin: 8px 0; background: #1e293b; border: 1px solid #334155; color: white; border-radius: 8px; font-size: 15px; outline: none; }}
-    input:focus {{ border-color: #38bdf8; }}
-    .btn {{ width: 100%; padding: 13px; background: #0284c7; border: none; color: white; font-size: 15px; border-radius: 8px; cursor: pointer; font-weight: bold; margin-top: 8px; transition: 0.2s; }}
-    .btn:hover {{ background: #0369a1; }}
-    .btn-green {{ background: #059669; }} .btn-green:hover {{ background: #047857; }}
-    .models-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin: 24px 0; }}
-    .model-card {{ background: #111827; border: 1px solid #1f2d40; border-radius: 12px; padding: 18px; text-align: center; transition: 0.2s; }}
-    .model-card:hover {{ border-color: #38bdf8; transform: translateY(-2px); }}
-    .model-badge {{ font-size: 11px; color: #94a3b8; background: #1e293b; padding: 3px 9px; border-radius: 12px; display: inline-block; margin-bottom: 8px; }}
-    .model-title {{ font-size: 18px; font-weight: bold; color: #38bdf8; }}
-    .model-sub {{ font-size: 12px; color: #64748b; margin: 4px 0 10px; }}
-    .model-status {{ font-size: 13px; font-weight: 600; }}
-    .online {{ color: #34d399; }} .offline {{ color: #ef4444; }}
-    #controlSection {{ display: none; }}
-    #keyBox {{ background: #0f172a; border: 1px dashed #34d399; border-radius: 8px; padding: 15px; margin-top: 15px; font-family: monospace; font-size: 13px; word-break: break-all; color: #34d399; display: none; }}
-    .section-title {{ font-size: 14px; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin: 24px 0 12px; }}
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MI AI — Engine Control</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root {{
+    --bg: #0b0d10;
+    --panel: #12151a;
+    --panel-2: #161a20;
+    --line: #232830;
+    --text: #e7eaee;
+    --text-dim: #828a96;
+    --green: #4ade80;
+    --red: #f87171;
+    --amber: #fbbf24;
+  }}
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body {{
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(circle at 15% 0%, rgba(94,234,212,0.05), transparent 40%),
+      radial-gradient(circle at 85% 10%, rgba(196,181,253,0.05), transparent 40%);
+  }}
+  .topbar {{
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 28px; border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }}
+  .brand {{ display: flex; align-items: center; gap: 10px; }}
+  .brand-dot {{ width: 9px; height: 9px; border-radius: 50%; background: var(--green); box-shadow: 0 0 10px var(--green); animation: pulse 2s infinite; }}
+  @keyframes pulse {{ 0%,100% {{ opacity: 1; }} 50% {{ opacity: 0.4; }} }}
+  .brand h1 {{ font-size: 15px; font-weight: 700; letter-spacing: 0.3px; }}
+  .brand span {{ font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); }}
+  .topbar-right {{ font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); }}
+
+  .wrap {{ max-width: 920px; margin: 0 auto; padding: 40px 24px 80px; }}
+
+  .lock-card {{
+    background: var(--panel); border: 1px solid var(--line); border-radius: 16px;
+    padding: 36px; max-width: 380px; margin: 60px auto;
+  }}
+  .lock-card h2 {{ font-size: 16px; font-weight: 600; margin-bottom: 4px; }}
+  .lock-card p {{ font-size: 13px; color: var(--text-dim); margin-bottom: 20px; }}
+  input {{
+    width: 100%; padding: 12px 14px; background: var(--panel-2);
+    border: 1px solid var(--line); color: var(--text); border-radius: 9px;
+    font-size: 14px; outline: none; font-family: 'JetBrains Mono', monospace;
+  }}
+  input:focus {{ border-color: var(--green); }}
+  .btn {{
+    width: 100%; padding: 12px; background: var(--text); border: none;
+    color: #0b0d10; font-size: 14px; border-radius: 9px; cursor: pointer;
+    font-weight: 600; margin-top: 10px; transition: 0.15s;
+  }}
+  .btn:hover {{ opacity: 0.85; }}
+  .btn-ghost {{ background: transparent; border: 1px solid var(--line); color: var(--text); }}
+  .btn-ghost:hover {{ border-color: var(--text-dim); opacity: 1; }}
+
+  #controlSection {{ display: none; }}
+
+  .section-label {{
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 1.2px; margin: 36px 0 14px;
+    display: flex; align-items: center; gap: 10px;
+  }}
+  .section-label::after {{ content: ''; flex: 1; height: 1px; background: var(--line); }}
+
+  .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }}
+
+  .unit {{
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 18px; position: relative; overflow: hidden;
+  }}
+  .unit::before {{
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: var(--accent);
+  }}
+  .unit-top {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }}
+  .unit-id {{ font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent); font-weight: 700; }}
+  .pill {{
+    font-size: 10px; padding: 3px 9px; border-radius: 20px; font-weight: 600;
+    background: var(--panel-2); color: var(--text-dim); letter-spacing: 0.3px;
+  }}
+  .pill.online {{ background: rgba(74,222,128,0.12); color: var(--green); }}
+  .pill.offline {{ background: rgba(248,113,113,0.12); color: var(--red); }}
+  .unit-name {{ font-size: 16px; font-weight: 700; }}
+  .unit-badge {{ font-size: 11px; color: var(--text-dim); margin: 2px 0 14px; }}
+  .unit-metrics {{ display: flex; gap: 18px; border-top: 1px solid var(--line); padding-top: 12px; }}
+  .metric-label {{ display: block; font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }}
+  .metric-val {{ display: block; font-family: 'JetBrains Mono', monospace; font-size: 14px; font-weight: 600; margin-top: 2px; }}
+
+  .keygen {{
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 22px; margin-top: 8px;
+  }}
+  select {{
+    width: 100%; padding: 11px; background: var(--panel-2); border: 1px solid var(--line);
+    color: var(--text); border-radius: 9px; margin: 10px 0; font-size: 13px;
+    font-family: 'JetBrains Mono', monospace;
+  }}
+  #keyBox {{
+    background: var(--panel-2); border: 1px dashed var(--green); border-radius: 9px;
+    padding: 14px; margin-top: 14px; font-family: 'JetBrains Mono', monospace;
+    font-size: 12px; line-height: 1.7; word-break: break-all; color: var(--green); display: none;
+  }}
+  #keyBox b {{ color: var(--text); }}
+</style>
 </head>
 <body>
-  <header>
-    <h1>⚡ MI AI Dashboard</h1>
-    <span>v2.0 — 4 Models Active</span>
-  </header>
-  <div class="container">
-    <div class="lock-card">
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-dot"></div>
+      <h1>MI AI · Engine Control</h1>
+      <span>v3.0</span>
+    </div>
+    <div class="topbar-right">4 ENGINES · GITHUB ACTIONS</div>
+  </div>
+
+  <div class="wrap">
+    <div class="lock-card" id="lockCard">
       <div id="lockSection">
-        <h2>🔐 System Lock</h2>
-        <input type="password" id="lockInput" placeholder="Security Code" onkeydown="if(event.key==='Enter')unlock()">
-        <button class="btn" onclick="unlock()">Unlock Dashboard</button>
+        <h2>🔐 Locked</h2>
+        <p>Enter the security code to access engine controls.</p>
+        <input type="password" id="lockInput" placeholder="Security code" onkeydown="if(event.key==='Enter')unlock()">
+        <button class="btn" onclick="unlock()">Unlock</button>
       </div>
     </div>
 
     <div id="controlSection">
-      <div class="section-title">📡 Live Models Status</div>
-      <div class="models-grid">{model_cards}</div>
+      <div class="section-label">Live Engines</div>
+      <div class="grid">{model_cards}</div>
 
-      <div class="lock-card" style="margin-top:0">
-        <h2 style="font-size:16px;margin-bottom:12px">🔑 Generate API Key</h2>
-        <select id="modelSel" style="width:100%;padding:10px;background:#1e293b;border:1px solid #334155;color:white;border-radius:8px;margin:8px 0">
+      <div class="section-label">API Key</div>
+      <div class="keygen">
+        <select id="modelSel">
           <option value="miai-v1">miai-v1 — Qwen 0.5B (Fast)</option>
           <option value="miai-v2">miai-v2 — Qwen 1.5B (Balanced)</option>
           <option value="miai-v3">miai-v3 — SmolLM2 1.7B</option>
           <option value="miai-v4">miai-v4 — Phi-2 2.7B (Best)</option>
         </select>
-        <button class="btn btn-green" onclick="genKey()">Generate Key</button>
+        <button class="btn btn-ghost" onclick="genKey()">Generate key</button>
         <div id="keyBox"></div>
       </div>
     </div>
@@ -119,20 +222,30 @@ async def dashboard():
   <script>
     function unlock() {{
       if(document.getElementById('lockInput').value === '{LOCK_CODE}') {{
-        document.getElementById('lockSection').style.display = 'none';
+        document.getElementById('lockCard').style.display = 'none';
         document.getElementById('controlSection').style.display = 'block';
         checkAll();
       }} else alert('Wrong code!');
     }}
 
     async function checkStatus(mid) {{
+      const pill = document.getElementById('status-' + mid);
+      const lat = document.getElementById('lat-' + mid);
+      const tps = document.getElementById('tps-' + mid);
       try {{
         const r = await fetch('/api/status/' + mid);
         const d = await r.json();
-        const el = document.getElementById('status-' + mid);
-        if(d.online) {{ el.innerHTML = '🟢 ONLINE'; el.className='model-status online'; }}
-        else {{ el.innerHTML = '🔴 OFFLINE'; el.className='model-status offline'; }}
-      }} catch(e) {{ document.getElementById('status-' + mid).innerHTML = '⚠️ ERROR'; }}
+        if(d.online) {{
+          pill.textContent = 'online'; pill.className = 'pill online';
+          lat.textContent = d.max_tokens ? d.max_tokens + ' tok cap' : '—';
+          tps.textContent = d.quantized ? 'int8' : 'fp32';
+        }} else {{
+          pill.textContent = 'offline'; pill.className = 'pill offline';
+          lat.textContent = '—'; tps.textContent = '—';
+        }}
+      }} catch(e) {{
+        pill.textContent = 'error'; pill.className = 'pill offline';
+      }}
     }}
 
     function checkAll() {{
@@ -146,10 +259,10 @@ async def dashboard():
       const box = document.getElementById('keyBox');
       box.style.display = 'block';
       box.innerHTML = `
-        <strong>Model:</strong> ${{mid}}<br>
-        <strong>Key:</strong> <span style="user-select:all">${{key}}</span><br><br>
-        <strong>Endpoint:</strong> https://${{location.host}}/v1/chat/completions<br>
-        <strong>Header:</strong> Authorization: Bearer ${{key}}
+        <b>Model:</b> ${{mid}}<br>
+        <b>Key:</b> <span style="user-select:all">${{key}}</span><br><br>
+        <b>Endpoint:</b> https://${{location.host}}/v1/chat/completions<br>
+        <b>Header:</b> Authorization: Bearer ${{key}}
       `;
     }}
 

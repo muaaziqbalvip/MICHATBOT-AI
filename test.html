@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MI AI — Model Testing Dashboard</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, sans-serif;
+            background: linear-gradient(135deg, #0a0f1e 0%, #1a1f3a 100%);
+            color: #f0f4ff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #0d1b2a, #1a3a5c);
+            padding: 25px;
+            border-radius: 12px;
+            border-bottom: 2px solid #38bdf8;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            color: #38bdf8;
+            letter-spacing: 2px;
+            margin-bottom: 8px;
+        }
+        
+        .header p {
+            color: #64748b;
+            font-size: 14px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .config-box {
+            background: #111827;
+            border: 1px solid #1f2d40;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .config-title {
+            font-size: 16px;
+            color: #38bdf8;
+            font-weight: bold;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .config-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        @media (max-width: 768px) {
+            .config-grid { grid-template-columns: 1fr; }
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .form-group label {
+            font-size: 13px;
+            color: #cbd5e1;
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+        
+        input[type="text"], input[type="number"], select {
+            padding: 10px 12px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #f0f4ff;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: 0.2s;
+        }
+        
+        input[type="text"]:focus, input[type="number"]:focus, select:focus {
+            border-color: #38bdf8;
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.1);
+        }
+        
+        .models-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .model-card {
+            background: #111827;
+            border: 1px solid #1f2d40;
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        
+        .model-card:hover {
+            border-color: #38bdf8;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(56, 189, 248, 0.1);
+        }
+        
+        .model-card.active {
+            border-color: #34d399;
+            background: #0f1d2a;
+        }
+        
+        .model-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 12px;
+        }
+        
+        .model-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #38bdf8;
+        }
+        
+        .model-badge {
+            font-size: 11px;
+            padding: 4px 10px;
+            border-radius: 12px;
+            background: #1e293b;
+            color: #cbd5e1;
+        }
+        
+        .model-info {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-bottom: 12px;
+            line-height: 1.5;
+        }
+        
+        .model-status {
+            font-size: 13px;
+            font-weight: 600;
+            padding: 8px 12px;
+            border-radius: 6px;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+        
+        .status-checking {
+            background: #1e293b;
+            color: #94a3b8;
+        }
+        
+        .status-online {
+            background: #065f46;
+            color: #34d399;
+        }
+        
+        .status-offline {
+            background: #7f1d1d;
+            color: #ef4444;
+        }
+        
+        .model-btn {
+            width: 100%;
+            padding: 10px;
+            background: #0284c7;
+            border: none;
+            color: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.2s;
+            font-size: 13px;
+        }
+        
+        .model-btn:hover {
+            background: #0369a1;
+        }
+        
+        .model-btn.active {
+            background: #34d399;
+        }
+        
+        .test-section {
+            background: #111827;
+            border: 1px solid #1f2d40;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .test-title {
+            font-size: 16px;
+            color: #38bdf8;
+            font-weight: bold;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        textarea {
+            width: 100%;
+            padding: 12px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #f0f4ff;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: 'Courier New', monospace;
+            resize: vertical;
+            min-height: 100px;
+            outline: none;
+            transition: 0.2s;
+        }
+        
+        textarea:focus {
+            border-color: #38bdf8;
+            box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.1);
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 14px;
+            transition: 0.2s;
+        }
+        
+        .btn-send {
+            background: #0284c7;
+            color: white;
+        }
+        
+        .btn-send:hover {
+            background: #0369a1;
+        }
+        
+        .btn-clear {
+            background: #475569;
+            color: white;
+        }
+        
+        .btn-clear:hover {
+            background: #64748b;
+        }
+        
+        .response-box {
+            background: #0f172a;
+            border: 1px dashed #334155;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            min-height: 100px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .response-empty {
+            color: #64748b;
+            font-style: italic;
+        }
+        
+        .response-text {
+            color: #cbd5e1;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .response-meta {
+            font-size: 12px;
+            color: #64748b;
+            margin-top: 15px;
+            padding-top: 10px;
+            border-top: 1px solid #334155;
+        }
+        
+        .meta-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 4px 0;
+        }
+        
+        .meta-label {
+            color: #94a3b8;
+        }
+        
+        .meta-value {
+            color: #34d399;
+            font-family: monospace;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            color: #38bdf8;
+            padding: 20px;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #334155;
+            border-top: 2px solid #38bdf8;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .error-box {
+            background: #7f1d1d;
+            border: 1px solid #ef4444;
+            color: #fca5a5;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 15px;
+            display: none;
+        }
+        
+        .success-box {
+            background: #065f46;
+            border: 1px solid #34d399;
+            color: #a7f3d0;
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 15px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>⚡ MI AI — Testing Dashboard</h1>
+        <p>Test all 4 models in real-time</p>
+    </div>
+
+    <div class="container">
+        <!-- Configuration Section -->
+        <div class="config-box">
+            <div class="config-title">🔧 Configuration</div>
+            <div class="config-grid">
+                <div class="form-group">
+                    <label>API Base URL</label>
+                    <input type="text" id="baseUrl" placeholder="https://yourdomain.vercel.app" value="">
+                </div>
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="text" id="apiKey" placeholder="miai-live-muaaz19720-xxxx" value="">
+                </div>
+                <div class="form-group">
+                    <label>Temperature (0.0 - 1.0)</label>
+                    <input type="number" id="temperature" min="0" max="1" step="0.1" value="0.6">
+                </div>
+                <div class="form-group">
+                    <label>Max Tokens</label>
+                    <input type="number" id="maxTokens" min="10" max="500" value="150">
+                </div>
+            </div>
+        </div>
+
+        <!-- Models Section -->
+        <div class="config-title" style="margin-bottom: 15px;">📡 Models</div>
+        <div class="models-grid">
+            <!-- miai-v1 -->
+            <div class="model-card" onclick="selectModel('miai-v1')">
+                <div class="model-header">
+                    <div class="model-title">miai-v1</div>
+                    <div class="model-badge">⚡ Fast</div>
+                </div>
+                <div class="model-info">
+                    <strong>Qwen2.5-0.5B</strong><br>
+                    Size: ~1GB<br>
+                    Speed: Ultra Fast<br>
+                    Urdu: ✅
+                </div>
+                <div class="model-status status-checking" id="status-miai-v1">⏳ Checking...</div>
+                <button class="model-btn" onclick="event.stopPropagation(); selectModel('miai-v1')">Select</button>
+            </div>
+
+            <!-- miai-v2 -->
+            <div class="model-card" onclick="selectModel('miai-v2')">
+                <div class="model-header">
+                    <div class="model-title">miai-v2</div>
+                    <div class="model-badge">⚖️ Balanced</div>
+                </div>
+                <div class="model-info">
+                    <strong>Qwen2.5-1.5B</strong><br>
+                    Size: ~3GB<br>
+                    Speed: Balanced<br>
+                    Urdu: ✅
+                </div>
+                <div class="model-status status-checking" id="status-miai-v2">⏳ Checking...</div>
+                <button class="model-btn" onclick="event.stopPropagation(); selectModel('miai-v2')">Select</button>
+            </div>
+
+            <!-- miai-v3 -->
+            <div class="model-card" onclick="selectModel('miai-v3')">
+                <div class="model-header">
+                    <div class="model-title">miai-v3</div>
+                    <div class="model-badge">🌍 Multi</div>
+                </div>
+                <div class="model-info">
+                    <strong>SmolLM2-1.7B</strong><br>
+                    Size: ~3.4GB<br>
+                    Speed: Moderate<br>
+                    Urdu: ✅
+                </div>
+                <div class="model-status status-checking" id="status-miai-v3">⏳ Checking...</div>
+                <button class="model-btn" onclick="event.stopPropagation(); selectModel('miai-v3')">Select</button>
+            </div>
+
+            <!-- miai-v4 -->
+            <div class="model-card" onclick="selectModel('miai-v4')">
+                <div class="model-header">
+                    <div class="model-title">miai-v4</div>
+                    <div class="model-badge">🧠 Best</div>
+                </div>
+                <div class="model-info">
+                    <strong>Phi-2 2.7B</strong><br>
+                    Size: ~5GB<br>
+                    Speed: Slow<br>
+                    Quality: Best
+                </div>
+                <div class="model-status status-checking" id="status-miai-v4">⏳ Checking...</div>
+                <button class="model-btn" onclick="event.stopPropagation(); selectModel('miai-v4')">Select</button>
+            </div>
+        </div>
+
+        <!-- Test Section -->
+        <div class="test-section">
+            <div class="test-title">🧪 Test Message</div>
+            <div class="form-group">
+                <label style="margin-bottom: 12px;">Message</label>
+                <textarea id="userMessage" placeholder="Salaam! Aap koun ho?" spellcheck="false"></textarea>
+            </div>
+            
+            <div class="btn-group">
+                <button class="btn btn-send" onclick="sendMessage()">Send Message</button>
+                <button class="btn btn-clear" onclick="clearResponse()">Clear</button>
+            </div>
+
+            <div class="error-box" id="errorBox"></div>
+            <div class="success-box" id="successBox"></div>
+
+            <div class="loading" id="loading">
+                <div class="spinner"></div>
+                <div style="margin-top: 10px;">Waiting for response...</div>
+            </div>
+
+            <div class="response-box">
+                <div class="response-empty" id="responseEmpty">Response will appear here...</div>
+                <div class="response-text" id="responseText" style="display: none;"></div>
+                <div class="response-meta" id="responseMeta" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentModel = 'miai-v1';
+
+        // Initialize
+        window.addEventListener('load', () => {
+            checkAllModels();
+            setInterval(checkAllModels, 30000);
+        });
+
+        // Check all models status
+        async function checkAllModels() {
+            const models = ['miai-v1', 'miai-v2', 'miai-v3', 'miai-v4'];
+            const url = document.getElementById('baseUrl').value;
+            if (!url) return;
+
+            for (const model of models) {
+                checkModelStatus(model, url);
+            }
+        }
+
+        // Check single model
+        async function checkModelStatus(model, baseUrl) {
+            try {
+                const response = await fetch(`${baseUrl}/api/status/${model}`, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+                const data = await response.json();
+                
+                const statusEl = document.getElementById(`status-${model}`);
+                if (data.online) {
+                    statusEl.textContent = '🟢 ONLINE';
+                    statusEl.className = 'model-status status-online';
+                } else {
+                    statusEl.textContent = '🔴 OFFLINE';
+                    statusEl.className = 'model-status status-offline';
+                }
+            } catch (error) {
+                document.getElementById(`status-${model}`).textContent = '⚠️ ERROR';
+                document.getElementById(`status-${model}`).className = 'model-status status-offline';
+            }
+        }
+
+        // Select model
+        function selectModel(model) {
+            currentModel = model;
+            document.querySelectorAll('.model-card').forEach(card => {
+                card.classList.remove('active');
+            });
+            event.target.closest('.model-card').classList.add('active');
+            
+            document.querySelectorAll('.model-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+        }
+
+        // Send message
+        async function sendMessage() {
+            const baseUrl = document.getElementById('baseUrl').value;
+            const apiKey = document.getElementById('apiKey').value;
+            const message = document.getElementById('userMessage').value;
+            const temperature = parseFloat(document.getElementById('temperature').value);
+            const maxTokens = parseInt(document.getElementById('maxTokens').value);
+
+            if (!baseUrl) {
+                showError('Please enter API Base URL');
+                return;
+            }
+            if (!apiKey) {
+                showError('Please enter API Key');
+                return;
+            }
+            if (!message) {
+                showError('Please enter a message');
+                return;
+            }
+
+            const loading = document.getElementById('loading');
+            const errorBox = document.getElementById('errorBox');
+            const successBox = document.getElementById('successBox');
+            
+            loading.style.display = 'block';
+            errorBox.style.display = 'none';
+            successBox.style.display = 'none';
+            document.getElementById('responseEmpty').style.display = 'block';
+            document.getElementById('responseText').style.display = 'none';
+            document.getElementById('responseMeta').style.display = 'none';
+
+            try {
+                const startTime = Date.now();
+                const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: currentModel,
+                        messages: [
+                            { role: 'user', content: message }
+                        ],
+                        temperature: temperature,
+                        max_tokens: maxTokens
+                    })
+                });
+
+                const data = await response.json();
+                const endTime = Date.now();
+                const duration = ((endTime - startTime) / 1000).toFixed(2);
+
+                if (!response.ok) {
+                    showError(`API Error: ${data.detail || response.statusText}`);
+                    loading.style.display = 'none';
+                    return;
+                }
+
+                if (data.choices && data.choices[0]) {
+                    const reply = data.choices[0].message.content;
+                    document.getElementById('responseEmpty').style.display = 'none';
+                    document.getElementById('responseText').style.display = 'block';
+                    document.getElementById('responseText').textContent = reply;
+
+                    if (data.usage) {
+                        let metaHTML = '<div class="meta-item"><span class="meta-label">Model:</span><span class="meta-value">' + data.model + '</span></div>';
+                        metaHTML += '<div class="meta-item"><span class="meta-label">Input Tokens:</span><span class="meta-value">' + data.usage.prompt_tokens + '</span></div>';
+                        metaHTML += '<div class="meta-item"><span class="meta-label">Output Tokens:</span><span class="meta-value">' + data.usage.completion_tokens + '</span></div>';
+                        metaHTML += '<div class="meta-item"><span class="meta-label">Response Time:</span><span class="meta-value">' + duration + 's</span></div>';
+                        document.getElementById('responseMeta').innerHTML = metaHTML;
+                    }
+                    document.getElementById('responseMeta').style.display = 'block';
+
+                    showSuccess(`✅ Response from ${currentModel} (${duration}s)`);
+                } else {
+                    showError('Invalid response format');
+                }
+            } catch (error) {
+                showError(`Error: ${error.message}`);
+            } finally {
+                loading.style.display = 'none';
+            }
+        }
+
+        // Clear response
+        function clearResponse() {
+            document.getElementById('userMessage').value = '';
+            document.getElementById('responseEmpty').style.display = 'block';
+            document.getElementById('responseText').style.display = 'none';
+            document.getElementById('responseMeta').style.display = 'none';
+            document.getElementById('errorBox').style.display = 'none';
+            document.getElementById('successBox').style.display = 'none';
+        }
+
+        // Show error
+        function showError(message) {
+            const errorBox = document.getElementById('errorBox');
+            errorBox.textContent = '❌ ' + message;
+            errorBox.style.display = 'block';
+        }
+
+        // Show success
+        function showSuccess(message) {
+            const successBox = document.getElementById('successBox');
+            successBox.textContent = message;
+            successBox.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

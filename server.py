@@ -1,6 +1,5 @@
 """
-MI AI SERVER — SIMPLE & FAST (FIXED & STABLE)
-Urdu/English Bilingual, Mental Health Aware, Tokenizer Correct
+MI AI SERVER — SUPER FAST & NO SYSTEM PROMPTS
 """
 
 import os
@@ -25,7 +24,7 @@ MODEL_ID = os.getenv("MODEL_ID", "miai-v1")
 MODEL_PATH = os.getenv("MODEL_PATH", "./model_files/miai-v1")
 PORT = int(os.getenv("PORT", "8000"))
 API_KEY = os.getenv("MIAI_API_KEY", "")
-TEMPERATURE = float(os.getenv("TEMPERATURE", "0.5"))  # 0.5 is good for warm, stable chats
+TEMPERATURE = float(os.getenv("TEMPERATURE", "0.5"))
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "250"))
 NGROK_TOKEN = os.getenv("NGROK_AUTH_TOKEN", "")
 
@@ -33,15 +32,13 @@ if not NGROK_TOKEN:
     print("❌ NGROK_AUTH_TOKEN missing!")
     sys.exit(1)
 
-# CPU threads — GitHub Actions has 2 vCPU
+# CPU threads — Optimized for speed
 torch.set_num_threads(2)
 torch.set_num_interop_threads(1)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # MODEL CONFIGS
 # ═══════════════════════════════════════════════════════════════════════════
-# FIX: 'quantize' set to False by default. Native PyTorch dynamic quant breaks LLMs.
-# FIX: 'greedy' set to False. Empathy needs slight sampling (temperature).
 
 CONFIG = {
     "miai-v1": {"family": "qwen", "max_tokens": 250, "greedy": False, "quantize": False},
@@ -53,20 +50,7 @@ CONFIG = {
 CFG = CONFIG.get(MODEL_ID, CONFIG["miai-v1"])
 
 # ═══════════════════════════════════════════════════════════════════════════
-# SYSTEM PROMPT — WARM, MENTAL HEALTH AWARE, BILINGUAL
-# ═══════════════════════════════════════════════════════════════════════════
-
-SYSTEM_PROMPT = (
-    "You are MI AI, an empathetic and supportive assistant by the MuslimIslam Organization. "
-    "Always reply in the exact same language and script the user used (Urdu, Roman Urdu, or English). "
-    "Be warm, patient, and understanding. If the user seems upset, stressed, or sad, "
-    "first acknowledge their feelings gently and validate them before offering advice. "
-    "Be accurate, helpful, and clear. Never sound cold, dismissive, or robotic. "
-    "Keep answers conversational, focused, and naturally helpful."
-)
-
-# ═══════════════════════════════════════════════════════════════════════════
-# LOAD MODEL
+# LOAD MODEL (FAST LOAD)
 # ═══════════════════════════════════════════════════════════════════════════
 
 print(f"\n🔄 Loading {MODEL_ID} ({CFG['family']})...")
@@ -87,18 +71,6 @@ try:
         low_cpu_mem_usage=True,
     )
     model.eval()
-
-    # INT8 quantization (Kept here but disabled in config)
-    # WARNING: Native PyTorch INT8 can severely degrade output quality of Qwen/Phi.
-    if CFG.get("quantize", False):
-        try:
-            print("⚡ Quantizing to INT8...")
-            model = torch.quantization.quantize_dynamic(
-                model, {torch.nn.Linear}, dtype=torch.qint8
-            )
-            print("✅ INT8 quantization done")
-        except Exception as e:
-            print(f"⚠️ Quantization skipped/failed: {e}")
 
     print(f"✅ {MODEL_ID} loaded successfully!\n")
 
@@ -143,10 +115,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ═══════════════════════════════════════════════════════════════════════════
-# MODELS
-# ═══════════════════════════════════════════════════════════════════════════
-
 class Message(BaseModel):
     role: str
     content: str
@@ -188,15 +156,13 @@ def clean(text: str) -> str:
     return text.strip()
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PROMPT BUILDING
+# PROMPT BUILDING (NO SYSTEM PROMPT)
 # ═══════════════════════════════════════════════════════════════════════════
 
 def build_prompt(messages):
-    msgs = [{"role": "system", "content": SYSTEM_PROMPT}]
-    for m in messages:
-        msgs.append({"role": m.role, "content": m.content})
+    # Sirf user ki messages jayengi, koi system prompt nahi
+    msgs = [{"role": m.role, "content": m.content} for m in messages]
 
-    # Try native chat template first
     try:
         if tokenizer.chat_template:
             return tokenizer.apply_chat_template(
@@ -205,7 +171,7 @@ def build_prompt(messages):
     except:
         pass
 
-    # Fallback formatting (Crucial for correct tokenizer behavior)
+    # Fallback formatting
     prompt = ""
     if CFG["family"] in ("qwen", "smollm2"):
         for msg in msgs:
@@ -213,11 +179,8 @@ def build_prompt(messages):
         prompt += "<|im_start|>assistant\n"
     else:
         for msg in msgs:
-            if msg["role"] in ("system", "user"):
-                prompt += f"Instruct: {msg['content']}\n"
-            else:
-                prompt += f"Output: {msg['content']}\n"
-        prompt += "Output:"
+            prompt += f"{msg['role'].capitalize()}: {msg['content']}\n"
+        prompt += "Assistant:"
     return prompt
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -226,15 +189,7 @@ def build_prompt(messages):
 
 @app.get("/health")
 def health():
-    return {
-        "status": "ok",
-        "model": MODEL_ID,
-        "languages": ["Urdu", "Roman Urdu", "English"],
-    }
-
-@app.get("/api/status/{model_name}")
-def status(model_name: str):
-    return {"model": model_name, "online": (model_name == MODEL_ID)}
+    return {"status": "ok", "model": MODEL_ID}
 
 @app.post("/v1/chat/completions")
 def chat(req: ChatRequest, authorization: Optional[str] = Header(None)):
@@ -242,7 +197,6 @@ def chat(req: ChatRequest, authorization: Optional[str] = Header(None)):
     try:
         start = time.time()
 
-        # Build & tokenize
         prompt = build_prompt(req.messages)
         inputs = tokenizer(
             prompt, return_tensors="pt", truncation=True, max_length=2048, padding=False
@@ -251,24 +205,21 @@ def chat(req: ChatRequest, authorization: Optional[str] = Header(None)):
         max_new = min(req.max_tokens or MAX_TOKENS, CFG["max_tokens"])
         temp = req.temperature if req.temperature is not None else TEMPERATURE
 
-        # Generation kwargs
         gen_kwargs = {
             "max_new_tokens": max_new,
             "pad_token_id": tokenizer.pad_token_id,
             "eos_token_id": EOS_IDS if EOS_IDS else tokenizer.eos_token_id,
-            "repetition_penalty": 1.15, # Slightly increased to prevent looping
+            "repetition_penalty": 1.15,
             "use_cache": True,
         }
 
-        # Sampling logic fixed
-        if CFG.get("greedy", False):
+        if CFG.get("greedy", False) or temp <= 0.01:
             gen_kwargs["do_sample"] = False
         else:
-            gen_kwargs["do_sample"] = temp > 0.01
-            gen_kwargs["temperature"] = max(temp, 0.01)
-            gen_kwargs["top_p"] = 0.90 # Best for natural language text
+            gen_kwargs["do_sample"] = True
+            gen_kwargs["temperature"] = temp
+            gen_kwargs["top_p"] = 0.90
 
-        # Generate
         with torch.no_grad():
             outputs = model.generate(**inputs, **gen_kwargs)
 
@@ -276,12 +227,10 @@ def chat(req: ChatRequest, authorization: Optional[str] = Header(None)):
         new_tokens = outputs[0][input_len:]
         reply = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
         
-        # Clean leaked tokens
         reply = clean(reply)
 
-        # Fallback if empty
         if not reply:
-            reply = "Main samajh nahi paaya. Kya aap isko dobara bata sakte hain, main yahan aapki madad ke liye mojood hoon."
+            reply = "..."
 
         elapsed = round(time.time() - start, 2)
 
@@ -304,14 +253,12 @@ def chat(req: ChatRequest, authorization: Optional[str] = Header(None)):
             ],
         }
 
-    except HTTPException:
-        raise
     except Exception as e:
-        print(f"Error during generation: {e}")
+        print(f"Error: {e}")
         raise HTTPException(status_code=500, detail="Internal Server Error")
 
 # ═══════════════════════════════════════════════════════════════════════════
-# NGROK
+# NGROK & MAIN
 # ═══════════════════════════════════════════════════════════════════════════
 
 def start_ngrok():
@@ -323,13 +270,9 @@ def start_ngrok():
         print(f"❌ Ngrok Error: {e}")
         sys.exit(1)
 
-# ═══════════════════════════════════════════════════════════════════════════
-# MAIN
-# ═══════════════════════════════════════════════════════════════════════════
-
 if __name__ == "__main__":
     t = threading.Thread(target=start_ngrok)
     t.daemon = True
     t.start()
-    print(f"🚀 Starting server on port {PORT}...\n")
+    print(f"🚀 Starting fast server on port {PORT}...\n")
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")

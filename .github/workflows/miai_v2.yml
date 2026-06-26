@@ -2,7 +2,7 @@ name: "miai-v2 | Qwen2.5-1.5B | 24/7 Engine"
 
 on:
   schedule:
-    - cron: '30 */5 * * *'   # v1 se 30min offset — overlap na ho
+    - cron: '30 */5 * * *'   # 30 min offset from v1
   workflow_dispatch:
 
 jobs:
@@ -13,7 +13,7 @@ jobs:
     env:
       MODEL_NAME: "miai-v2"
       HF_REPO: "Qwen/Qwen2.5-1.5B-Instruct"
-      CACHE_KEY: "miai-v2-qwen15b-v2"
+      CACHE_KEY: "miai-v2-qwen15b-v3"
 
     steps:
       - name: "📥 Checkout"
@@ -31,37 +31,37 @@ jobs:
           path: ./model_files/miai-v2
           key: ${{ env.CACHE_KEY }}-${{ runner.os }}
 
-      - name: "⬇️ Download miai-v2 Model (Qwen2.5-1.5B)"
+      - name: "⬇️ Download miai-v2 Model"
         if: steps.cache-model.outputs.cache-hit != 'true'
         run: |
           mkdir -p ./model_files/miai-v2
-          echo "Downloading miai-v2 (Qwen2.5-1.5B) model files..."
+          echo "🔄 Downloading Qwen2.5-1.5B..."
           BASE="https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct/resolve/main"
-          FILES="config.json tokenizer.json tokenizer_config.json special_tokens_map.json generation_config.json"
-          for f in $FILES; do
-            echo "⬇️ $f"
-            curl -fsSL "$BASE/$f" -o "./model_files/miai-v2/$f" || echo "WARN: $f skipped"
+          
+          for FILE in config.json tokenizer.json tokenizer_config.json special_tokens_map.json generation_config.json; do
+            echo "⬇️ $FILE"
+            curl -fL --retry 3 "$BASE/$FILE" -o "./model_files/miai-v2/$FILE" || true
           done
-          # Qwen2.5-1.5B has 2 shards
-          curl -fL --retry 5 --retry-delay 10 \
-            "$BASE/model-00001-of-00002.safetensors" \
-            -o "./model_files/miai-v2/model-00001-of-00002.safetensors"
-          curl -fL --retry 5 --retry-delay 10 \
-            "$BASE/model-00002-of-00002.safetensors" \
-            -o "./model_files/miai-v2/model-00002-of-00002.safetensors"
-          curl -fsSL "$BASE/model.safetensors.index.json" \
-            -o "./model_files/miai-v2/model.safetensors.index.json"
-          echo "✅ miai-v2 download complete"
+          
+          # Qwen 1.5B has 2 shards
+          echo "⬇️ model-00001-of-00002.safetensors"
+          curl -fL --retry 3 "$BASE/model-00001-of-00002.safetensors" -o "./model_files/miai-v2/model-00001-of-00002.safetensors"
+          
+          echo "⬇️ model-00002-of-00002.safetensors"
+          curl -fL --retry 3 "$BASE/model-00002-of-00002.safetensors" -o "./model_files/miai-v2/model-00002-of-00002.safetensors"
+          
+          echo "⬇️ model.safetensors.index.json"
+          curl -fL --retry 3 "$BASE/model.safetensors.index.json" -o "./model_files/miai-v2/model.safetensors.index.json"
+          echo "✅ Download complete"
 
       - name: "📚 Install Dependencies"
         run: |
-          pip install -q --upgrade pip
-          pip install -q fastapi uvicorn pyngrok requests \
-            transformers==4.45.0 \
-            torch==2.3.1+cpu --index-url https://download.pytorch.org/whl/cpu \
-            accelerate sentencepiece protobuf
+          python -m pip install --upgrade pip
+          pip install fastapi==0.110.0 uvicorn==0.28.0 pyngrok requests
+          pip install transformers==4.45.0 accelerate sentencepiece protobuf
+          pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
 
-      - name: "🚀 Launch miai-v2 Engine + Vercel Sync"
+      - name: "🚀 Start miai-v2 Engine"
         env:
           NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -70,48 +70,52 @@ jobs:
           MODEL_PATH: "./model_files/miai-v2"
           MAX_TOKENS: "200"
           TEMPERATURE: "0.6"
+          PORT: "8000"
         run: |
-          python server.py &
+          python server.py > server.log 2>&1 &
           SERVER_PID=$!
-
-          echo "⏳ miai-v2 loading (1.5B ~40s)..."
-          sleep 45
-
-          for i in $(seq 1 12); do
-            STATUS=$(curl -sf http://127.0.0.1:8000/health | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','dead'))" 2>/dev/null || echo "dead")
-            if [ "$STATUS" = "ok" ]; then
-              echo "✅ miai-v2 is healthy!"
+          echo "Server started (PID: $SERVER_PID)"
+          
+          echo "⏳ Loading model (1.5B takes ~45s)..."
+          sleep 50
+          
+          echo "🔍 Health check..."
+          for i in {1..18}; do
+            if curl -sf http://127.0.0.1:8000/health > /dev/null 2>&1; then
+              echo "✅ Server is healthy"
               break
             fi
-            echo "Retry $i/12 — waiting..."
-            sleep 10
+            echo "Wait $i/18..."
+            sleep 5
           done
-
-          PUBLIC_URL=$(curl -sf http://127.0.0.1:4040/api/tunnels | \
-            python3 -c "import sys,json; t=json.load(sys.stdin)['tunnels']; print([x for x in t if x['proto']=='https'][0]['public_url'])" 2>/dev/null || echo "")
-
+          
+          echo "📡 Fetching public URL..."
+          sleep 5
+          PUBLIC_URL=$(curl -sf http://127.0.0.1:4040/api/tunnels 2>/dev/null | grep -o '"public_url":"https://[^"]*' | cut -d'"' -f4 | head -1)
+          
           if [ -z "$PUBLIC_URL" ]; then
-            echo "❌ Ngrok URL fetch failed!"
+            echo "❌ Failed to get URL"
+            cat server.log
             exit 1
           fi
-          echo "🌐 miai-v2 Live: $PUBLIC_URL"
-
-          curl -sf -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}/env/MIAI_V2_URL" \
-            -H "Authorization: Bearer ${VERCEL_TOKEN}" || true
-
-          curl -sf -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_NAME}/env" \
+          
+          echo "🌐 Public URL: $PUBLIC_URL"
+          
+          curl -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}/env/MIAI_V2_URL" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" 2>/dev/null || true
+          
+          curl -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_NAME}/env" \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "{\"key\":\"MIAI_V2_URL\",\"value\":\"${PUBLIC_URL}\",\"type\":\"plain\",\"target\":[\"production\",\"preview\",\"development\"]}" \
-            && echo "✅ Vercel synced — miai-v2 URL updated"
-
-          echo "⏱️ Keeping alive..."
+            2>/dev/null && echo "✅ Vercel updated"
+          
+          echo "⏱️ Running for 5hr 40min..."
           sleep 20100
-
-          curl -sf -X POST \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/miai_v2.yml/dispatches" \
+          
+          curl -X POST "https://api.github.com/repos/${{ github.repository }}/actions/workflows/miai_v2.yml/dispatches" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
-            -d '{"ref":"main"}' && echo "🔄 Next loop triggered!"
-
+            -d '{"ref":"main"}' 2>/dev/null && echo "🔄 Next run scheduled"
+          
           wait $SERVER_PID

@@ -1,19 +1,11 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# Vercel Gateway dependencies ONLY (api/index.py)
+# This is a lightweight router — it forwards requests to the GitHub Actions
+# engines over HTTP. It does NOT load any AI models itself, so it must NOT
+# contain torch/transformers/diffusers — those would blow Vercel's 500MB
+# function size limit.
+# ═══════════════════════════════════════════════════════════════════════════
 fastapi==0.110.0
 uvicorn==0.28.0
 requests==2.31.0
 pydantic==2.6.4
-transformers==4.45.0
-torch==2.3.1
-accelerate
-sentencepiece
-protobuf
-pyngrok
-
-# Image generation (miai-img / SDXL-Turbo)
-diffusers==0.30.0
-pillow
-
-# Video generation (miai-video / text-to-video-ms-1.7b)
-imageio
-imageio-ffmpeg
-opencv-python-headless

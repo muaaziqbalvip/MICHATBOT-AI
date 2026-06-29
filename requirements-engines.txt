@@ -1,0 +1,28 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# These are NOT installed by Vercel. They are installed inside each GitHub
+# Actions workflow (.github/workflows/*.yml) on the runner itself, because
+# each engine (text/image/video) only needs its own specific stack.
+#
+# This file is reference/documentation only — the actual `pip install`
+# commands live inline in each workflow's "Install Dependencies" step.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ── Used by server.py (text models: miai-v1, v2, v3, v4) ──
+fastapi==0.110.0
+uvicorn==0.28.0
+pyngrok
+requests
+transformers==4.45.0
+accelerate
+sentencepiece
+protobuf
+torch==2.3.1          # CPU build: --index-url https://download.pytorch.org/whl/cpu
+
+# ── Extra, used by server_image.py (miai-img / SDXL-Turbo) ──
+diffusers==0.30.0
+pillow
+
+# ── Extra, used by server_video.py (miai-video / text-to-video-ms-1.7b) ──
+imageio
+imageio-ffmpeg
+opencv-python-headless

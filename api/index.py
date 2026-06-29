@@ -12,8 +12,11 @@ WHAT CHANGED IN v3.0
 """
 
 import os
+import time
+import threading
+import uuid
 import requests
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -29,12 +32,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# In-memory job store for async video generation (Hobby plan: max 300s per
+# request, but video gen takes 5-15 min — so we return a job_id immediately
+# and let the caller poll /v1/videos/status/{job_id}).
+# NOTE: This resets on every cold start / new deployment since it's
+# in-memory only. For production durability, swap this for Firebase
+# (which is already part of this project's stack) or Vercel KV.
+VIDEO_JOBS = {}
+
 # Each model ka Vercel env se URL milta hai
 MODEL_URLS = {
     "miai-v1": os.getenv("MIAI_V1_URL", ""),
     "miai-v2": os.getenv("MIAI_V2_URL", ""),
     "miai-v3": os.getenv("MIAI_V3_URL", ""),
     "miai-v4": os.getenv("MIAI_V4_URL", ""),
+}
+
+# Image / Video engines (separate dict — different request/response shape)
+MEDIA_URLS = {
+    "miai-img": os.getenv("MIAI_IMG_URL", ""),
+    "miai-video": os.getenv("MIAI_VIDEO_URL", ""),
 }
 
 LOCK_CODE = "muaaz19720"
@@ -44,6 +61,11 @@ MODEL_META = {
     "miai-v2": {"name": "Qwen2.5-1.5B", "badge": "Balanced",   "accent": "#7dd3fc"},
     "miai-v3": {"name": "SmolLM2-1.7B", "badge": "Multilingual", "accent": "#c4b5fd"},
     "miai-v4": {"name": "Phi-2 2.7B",   "badge": "Deep Reason", "accent": "#fda4af"},
+}
+
+MEDIA_META = {
+    "miai-img": {"name": "SDXL-Turbo", "badge": "Image Gen", "accent": "#fcd34d"},
+    "miai-video": {"name": "text-to-video-ms-1.7b", "badge": "Video Gen (slow, CPU)", "accent": "#f472b6"},
 }
 
 # ─── Admin Dashboard ─────────────────────────────────────────────────────────────
@@ -66,6 +88,18 @@ async def dashboard():
         </div>
         """
 
+    media_cards = ""
+    for mid, meta in MEDIA_META.items():
+        media_cards += f"""
+        <div class="unit" id="card-{mid}" style="--accent:{meta['accent']}">
+          <div class="unit-top">
+            <span class="unit-id">{mid}</span>
+            <span class="pill" id="status-{mid}">checking…</span>
+          </div>
+          <div class="unit-name">{meta['name']}</div>
+          <div class="unit-badge">{meta['badge']}</div>
+        </div>
+        """
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -205,6 +239,9 @@ async def dashboard():
       <div class="section-label">Live Engines</div>
       <div class="grid">{model_cards}</div>
 
+      <div class="section-label">Media Engines (Image / Video)</div>
+      <div class="grid">{media_cards}</div>
+
       <div class="section-label">API Key</div>
       <div class="keygen">
         <select id="modelSel">
@@ -249,7 +286,7 @@ async def dashboard():
     }}
 
     function checkAll() {{
-      ['miai-v1','miai-v2','miai-v3','miai-v4'].forEach(checkStatus);
+      ['miai-v1','miai-v2','miai-v3','miai-v4','miai-img','miai-video'].forEach(checkStatus);
     }}
 
     function genKey() {{
@@ -275,7 +312,7 @@ async def dashboard():
 @app.get("/api/status")
 async def status_all():
     result = {}
-    for mid, url in MODEL_URLS.items():
+    for mid, url in {**MODEL_URLS, **MEDIA_URLS}.items():
         if not url:
             result[mid] = {"online": False, "reason": "URL not set"}
             continue
@@ -288,7 +325,7 @@ async def status_all():
 
 @app.get("/api/status/{model_id}")
 async def status_model(model_id: str):
-    url = MODEL_URLS.get(model_id)
+    url = MODEL_URLS.get(model_id) or MEDIA_URLS.get(model_id)
     if not url:
         return {"online": False, "model": model_id, "reason": "URL not configured"}
     try:
@@ -306,7 +343,9 @@ async def list_models():
             {"id": "miai-v1", "description": "Qwen2.5-0.5B — Ultra fast, Urdu support"},
             {"id": "miai-v2", "description": "Qwen2.5-1.5B — Balanced speed + quality"},
             {"id": "miai-v3", "description": "SmolLM2-1.7B — Smart multilingual"},
-            {"id": "miai-v4", "description": "Phi-2 2.7B — Deep reasoning"},
+            {"id": "miai-v4", "description": "Phi-2 2.7B — Deep reasoning + coding"},
+            {"id": "miai-img", "description": "SDXL-Turbo — Image generation (1-2 min/image, CPU)"},
+            {"id": "miai-video", "description": "text-to-video-ms-1.7b — Video generation (5-15 min/video, CPU)"},
         ]
     }
 
@@ -346,3 +385,81 @@ async def chat_completions(request: Request):
         raise HTTPException(504, f"{requested_model} response timeout. Try a smaller model.")
     except Exception as e:
         raise HTTPException(500, f"Gateway error: {str(e)}")
+
+# ─── Image Generation Gateway ────────────────────────────────────────────────────
+@app.post("/v1/images/generations")
+async def image_generations(request: Request):
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(401, "Missing Authorization header")
+    token = auth.split(" ", 1)[1]
+    if not validate_key(token):
+        raise HTTPException(403, "Invalid MI AI API Key")
+
+    body = await request.json()
+    target_url = MEDIA_URLS.get("miai-img", "")
+    if not target_url:
+        raise HTTPException(503, "miai-img is currently offline. Check GitHub Actions.")
+
+    endpoint = f"{target_url.rstrip('/')}/v1/images/generations"
+    try:
+        # SDXL-Turbo on CPU: ~1-2 min/image, give it generous headroom
+        resp = requests.post(endpoint, json=body, timeout=180)
+        return resp.json()
+    except requests.Timeout:
+        raise HTTPException(504, "Image generation timed out (CPU is slow). Try again.")
+    except Exception as e:
+        raise HTTPException(500, f"Gateway error: {str(e)}")
+
+# ─── Video Generation Gateway (ASYNC — Hobby plan can't hold a request open
+# for 5-15 minutes, so this returns immediately and the caller polls status) ──
+def _run_video_job(job_id: str, body: dict, target_url: str):
+    """Runs in a background thread; updates VIDEO_JOBS when done."""
+    try:
+        endpoint = f"{target_url.rstrip('/')}/v1/videos/generations"
+        resp = requests.post(endpoint, json=body, timeout=1200)
+        data = resp.json()
+        if resp.status_code == 200:
+            VIDEO_JOBS[job_id] = {"status": "completed", "result": data}
+        else:
+            VIDEO_JOBS[job_id] = {"status": "failed", "error": data}
+    except requests.Timeout:
+        VIDEO_JOBS[job_id] = {"status": "failed", "error": "Video generation timed out on the engine (CPU is slow). Try fewer frames/steps."}
+    except Exception as e:
+        VIDEO_JOBS[job_id] = {"status": "failed", "error": str(e)}
+
+@app.post("/v1/videos/generations")
+async def video_generations(request: Request):
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(401, "Missing Authorization header")
+    token = auth.split(" ", 1)[1]
+    if not validate_key(token):
+        raise HTTPException(403, "Invalid MI AI API Key")
+
+    body = await request.json()
+    target_url = MEDIA_URLS.get("miai-video", "")
+    if not target_url:
+        raise HTTPException(503, "miai-video is currently offline. Check GitHub Actions.")
+
+    job_id = uuid.uuid4().hex
+    VIDEO_JOBS[job_id] = {"status": "processing"}
+
+    t = threading.Thread(target=_run_video_job, args=(job_id, body, target_url), daemon=True)
+    t.start()
+
+    # Returned right away — this request finishes in well under 300s.
+    # Caller must poll /v1/videos/status/{job_id} for the actual result.
+    return {
+        "job_id": job_id,
+        "status": "processing",
+        "message": "Video generation started. CPU rendering takes 5-15 minutes. Poll /v1/videos/status/{job_id} for the result.",
+        "poll_url": f"/v1/videos/status/{job_id}",
+    }
+
+@app.get("/v1/videos/status/{job_id}")
+async def video_status(job_id: str):
+    job = VIDEO_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(404, "Unknown job_id (may have expired after a redeploy/cold start).")
+    return job

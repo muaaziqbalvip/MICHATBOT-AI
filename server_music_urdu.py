@@ -1,7 +1,9 @@
 import os
 import torch
 import json
+import base64
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from audiocraft.models import MusicGen
 from scipy.io import wavfile
@@ -26,7 +28,6 @@ URDU_MOOD_MAP = {
     "رومانوی": "romantic, love, soft, dreamy",
     "سنجیدہ": "serious, dramatic, cinematic, orchestral",
     "بچوں": "kids, playful, fun, light, whimsical",
-    # English aliases
     "happy": "happy, joyful, uplifting",
     "sad": "sad, melancholic, emotional, slow",
     "calm": "calm, peaceful, relaxing, ambient",
@@ -37,10 +38,16 @@ URDU_MOOD_MAP = {
     "kids": "kids, playful, fun, light, whimsical",
 }
 
-# Load model globally
-print("🎵 Loading MusicGen Small model (Urdu-friendly)...")
+# Load model globally — LOCAL PATH use karo
+print(f"🎵 Loading MusicGen model from: {MODEL_PATH}")
 try:
-    model = MusicGen.get_model("facebook/musicgen-small")
+    # Pehle local path try karo, fallback to HF download
+    if os.path.exists(MODEL_PATH) and os.listdir(MODEL_PATH):
+        print(f"✅ Using local model from {MODEL_PATH}")
+        model = MusicGen.get_model(MODEL_PATH)
+    else:
+        print("⚠️ Local model not found, downloading from HuggingFace...")
+        model = MusicGen.get_model("facebook/musicgen-large")
     model.set_generation_params(use_sampling=True, top_k=250)
     print("✅ Model loaded successfully")
 except Exception as e:
@@ -49,34 +56,31 @@ except Exception as e:
 
 # ============ PYDANTIC MODELS ============
 class MusicRequest(BaseModel):
-    prompt: str  # Can be in Urdu, Hinglish, or English
-    mood: str = None  # Urdu mood descriptor (optional)
-    duration: int = 30  # seconds (max 30)
-    temperature: float = 1.0  # 0.1-2.0
+    prompt: str
+    mood: str = None
+    duration: int = 30
+    temperature: float = 1.0
     top_k: int = 250
     top_p: float = 0.9
-    language: str = "auto"  # "urdu", "english", "hinglish", "auto"
+    language: str = "auto"
 
 class MusicResponse(BaseModel):
     success: bool
     message: str
     audio_url: str = None
+    audio_base64: str = None
     duration: int = None
     prompt_expanded: str = None
     model_info: dict = None
 
 # ============ UTILITY FUNCTIONS ============
 def expand_urdu_prompt(prompt: str, mood: str = None) -> str:
-    """Expand Urdu/Hinglish prompt to full English description"""
-    
-    # Check if mood is Urdu
     if mood and mood in URDU_MOOD_MAP:
         mood_expansion = URDU_MOOD_MAP[mood]
         return f"{prompt}, {mood_expansion}"
     
-    # Common Urdu/Hinglish mappings
     urdu_words = {
-        "نaat": "naat, Islamic prayer, spiritual vocal",
+        "naat": "naat, Islamic prayer, spiritual vocal",
         "qawwali": "qawwali, Sufi music, devotional, rhythmic",
         "ghazal": "ghazal, classical Indian, poetic, vocal",
         "wedding": "celebration, festive, drums, energetic",
@@ -92,7 +96,6 @@ def expand_urdu_prompt(prompt: str, mood: str = None) -> str:
         if key.lower() in prompt.lower():
             expanded = expanded.replace(key, val)
     
-    # If mood is provided (English)
     if mood and mood.lower() in URDU_MOOD_MAP:
         expanded += f", {URDU_MOOD_MAP[mood.lower()]}"
     
@@ -101,10 +104,9 @@ def expand_urdu_prompt(prompt: str, mood: str = None) -> str:
 # ============ ROUTES ============
 @app.get("/health")
 async def health():
-    """Health check endpoint"""
     return {
         "status": "healthy",
-        "model": "facebook/musicgen-small",
+        "model": "facebook/musicgen-large",
         "model_loaded": model is not None,
         "urdu_support": True,
         "timestamp": datetime.now().isoformat()
@@ -112,19 +114,15 @@ async def health():
 
 @app.post("/generate", response_model=MusicResponse)
 async def generate_music(request: MusicRequest):
-    """Generate music from text prompt (supports Urdu, Hinglish, English)"""
-    
     if not model:
         raise HTTPException(status_code=503, detail="Model not loaded")
     
     if not request.prompt or len(request.prompt.strip()) == 0:
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
     
-    # Clamp duration
     duration = min(max(request.duration, 5), 30)
     
     try:
-        # Expand prompt with mood/context
         expanded_prompt = expand_urdu_prompt(request.prompt, request.mood)
         
         print(f"🎵 Generating music:")
@@ -133,46 +131,60 @@ async def generate_music(request: MusicRequest):
         print(f"   Expanded: {expanded_prompt}")
         print(f"   Duration: {duration}s")
         
-        # Generate with timeout
-        with torch.no_grad():
-            descriptions = [expanded_prompt]
-            wav = model.generate(
-                descriptions,
-                progress=True,
-                top_k=request.top_k,
-                top_p=request.top_p,
-                temperature=request.temperature
-            )
+        model.set_generation_params(
+            use_sampling=True,
+            top_k=request.top_k,
+            top_p=request.top_p,
+            temperature=request.temperature,
+            duration=duration
+        )
         
-        # Save as WAV
+        with torch.no_grad():
+            wav = model.generate([expanded_prompt], progress=True)
+        
+        # Save WAV
         output_dir = "/tmp/miai_music"
         os.makedirs(output_dir, exist_ok=True)
-        timestamp = int(asyncio.get_event_loop().time() * 1000)
-        output_path = os.path.join(output_dir, f"music_{timestamp}.wav")
+        timestamp = int(datetime.now().timestamp() * 1000)
+        filename = f"music_{timestamp}.wav"
+        output_path = os.path.join(output_dir, filename)
         
-        # WAV file save
-        sample_rate = 16000
+        # Get sample rate from model
+        sample_rate = model.sample_rate
         audio_data = wav[0].cpu().numpy()
-        
-        # Normalize to prevent clipping
         audio_data = np.clip(audio_data, -1.0, 1.0)
         if audio_data.ndim == 1:
             audio_data = np.expand_dims(audio_data, axis=0)
         
-        # Convert to int16
         audio_int16 = (audio_data * 32767).astype(np.int16)
-        wavfile.write(output_path, sample_rate, audio_int16.T if audio_int16.shape[0] > 1 else audio_int16.flatten())
+        wavfile.write(
+            output_path,
+            sample_rate,
+            audio_int16.T if audio_int16.shape[0] > 1 else audio_int16.flatten()
+        )
+        
+        # Base64 encode karo taake browser me direct play ho
+        with open(output_path, "rb") as f:
+            audio_b64 = base64.b64encode(f.read()).decode("utf-8")
         
         print(f"✅ Music generated: {output_path}")
         
+        # Ngrok URL se serve karo
+        ngrok_url = os.getenv("NGROK_URL", "")
+        if ngrok_url:
+            audio_url = f"{ngrok_url}/audio/{filename}"
+        else:
+            audio_url = f"http://127.0.0.1:{PORT}/audio/{filename}"
+        
         return MusicResponse(
             success=True,
-            message=f"✅ Urdu-friendly music generated ({duration}s)",
-            audio_url=f"file://{output_path}",
+            message=f"✅ Music generated ({duration}s)",
+            audio_url=audio_url,
+            audio_base64=f"data:audio/wav;base64,{audio_b64}",
             duration=duration,
             prompt_expanded=expanded_prompt,
             model_info={
-                "model": "MusicGen Small",
+                "model": "MusicGen Large",
                 "sample_rate": sample_rate,
                 "supports_urdu": True,
                 "supports_hinglish": True,
@@ -183,9 +195,16 @@ async def generate_music(request: MusicRequest):
         print(f"❌ Generation error: {e}")
         raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
 
+@app.get("/audio/{filename}")
+async def serve_audio(filename: str):
+    """Audio file serve karo"""
+    path = f"/tmp/miai_music/{filename}"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Audio not found")
+    return FileResponse(path, media_type="audio/wav")
+
 @app.get("/moods")
 async def list_moods():
-    """Get available mood options"""
     return {
         "urdu_moods": {
             "خوشی": "Happy/Joyful",
@@ -206,50 +225,38 @@ async def list_moods():
             "romantic": "Romantic",
             "serious": "Serious/Dramatic",
             "kids": "Kids/Playful",
-        },
-        "example_prompts": {
-            "urdu": ["naat", "qawwali", "ghazal", "sufi", "bhangra"],
-            "hinglish": ["wedding music", "Bollywood style", "folk instrumental"],
-            "english": ["upbeat electronic", "peaceful ambient", "orchestral drama"],
         }
     }
 
 @app.get("/info")
 async def info():
-    """Get model information"""
     return {
-        "model": "MusicGen Small",
-        "model_size": "328M",
+        "model": "MusicGen Large",
+        "model_size": "3.3GB",
         "max_duration": 30,
-        "sample_rate": 16000,
+        "sample_rate": getattr(model, 'sample_rate', 32000) if model else 32000,
         "supported_formats": ["wav"],
         "urdu_support": True,
         "hinglish_support": True,
         "english_support": True,
-        "features": [
-            "Urdu mood descriptors",
-            "Hinglish prompt expansion",
-            "Multi-language support",
-            "Mood-based generation",
-        ],
         "ngrok_url": os.getenv("NGROK_URL", "pending")
     }
 
 # ============ STARTUP ============
 @app.on_event("startup")
 async def startup():
-    """Setup ngrok tunnel on startup"""
     if NGROK_TOKEN:
         try:
             ngrok.set_auth_token(NGROK_TOKEN)
             public_url = ngrok.connect(PORT, "http")
-            print(f"🌐 Ngrok tunnel: {public_url}")
-            os.environ["NGROK_URL"] = str(public_url)
+            url_str = str(public_url)
+            print(f"🌐 Ngrok tunnel: {url_str}")
+            os.environ["NGROK_URL"] = url_str
         except Exception as e:
-            print(f"⚠️ Ngrok setup failed (continuing anyway): {e}")
+            print(f"⚠️ Ngrok setup failed: {e}")
 
 # ============ RUN ============
 if __name__ == "__main__":
     import uvicorn
-    print(f"🚀 Starting Urdu-Friendly Music Generation Server on port {PORT}")
-    uvicorn.run(app, host="127.0.0.1", port=PORT, log_level="info")
+    print(f"🚀 Starting Urdu-Friendly Music Server on port {PORT}")
+    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")

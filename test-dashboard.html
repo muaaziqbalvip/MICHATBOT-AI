@@ -757,7 +757,7 @@
             document.getElementById('musicLoading').style.display = 'block';
             document.getElementById('musicResponseBox').style.display = 'none';
             document.getElementById('musicError').style.display = 'none';
-            showAlert('musicInfo', 'ℹ️ Generating music... (MusicGen Small ~1-2min) 🎵', 'info');
+            showAlert('musicInfo', 'ℹ️ Generating music... (MusicGen Large ~2-4min) 🎵', 'info');
 
             try {
                 const startTime = Date.now();
@@ -777,10 +777,12 @@
                 const data = await response.json();
                 const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 
-                if (data.audio_url) {
-                    document.getElementById('musicPreview').src = data.audio_url;
+                // audio_base64 use karo (file:// kaam nahi karta browser me)
+                const audioSrc = data.audio_base64 || data.audio_url;
+                if (audioSrc) {
+                    document.getElementById('musicPreview').src = audioSrc;
                     let metaHTML = `
-                        <div class="meta-item"><span class="meta-label">Model</span><span class="meta-value">MusicGen Small</span></div>
+                        <div class="meta-item"><span class="meta-label">Model</span><span class="meta-value">${data.model_info?.model || 'MusicGen Large'}</span></div>
                         <div class="meta-item"><span class="meta-label">Generation Time</span><span class="meta-value">${duration}s</span></div>
                         <div class="meta-item"><span class="meta-label">Duration</span><span class="meta-value">${data.duration}s</span></div>
                     `;

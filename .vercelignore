@@ -1,0 +1,14 @@
+# These files are ONLY for GitHub Actions engine runners (server.py, server_image.py,
+# server_video.py all define their own `app = FastAPI(...)`), which conflicts with
+# Vercel's Python auto-detection (it scans for app.py/index.py/server.py/main.py/
+# wsgi.py/asgi.py as entrypoints). Excluding them here keeps Vercel focused on
+# api/index.py only. GitHub Actions checks out the repo directly, so this has zero
+# effect on the workflows.
+server.py
+server_image.py
+server_video.py
+requirements-engines.txt
+*.log
+model_files/
+test.html
+README.md

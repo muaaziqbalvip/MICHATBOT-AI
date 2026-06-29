@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MI AI — Complete Model Testing Dashboard</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, sans-serif;
+            background: linear-gradient(135deg, #0a0f1e 0%, #1a1f3a 100%);
+            color: #f0f4ff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #0d1b2a, #1a3a5c);
+            padding: 25px;
+            border-radius: 12px;
+            border-bottom: 3px solid #d4af37;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            color: #d4af37;
+            letter-spacing: 2px;
+            margin-bottom: 8px;
+            text-shadow: 0 2px 8px rgba(212, 175, 55, 0.3);
+        }
+        
+        .header p {
+            color: #94a3b8;
+            font-size: 13px;
+            letter-spacing: 1px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .tab-btn {
+            padding: 12px 20px;
+            background: #1e293b;
+            border: 2px solid #334155;
+            color: #cbd5e1;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            font-size: 14px;
+        }
+        
+        .tab-btn:hover {
+            border-color: #d4af37;
+            color: #d4af37;
+        }
+        
+        .tab-btn.active {
+            background: #d4af37;
+            color: #0a0f1e;
+            border-color: #d4af37;
+            box-shadow: 0 4px 12px rgba(212, 175, 55, 0.2);
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .config-box {
+            background: #111827;
+            border: 1px solid #1f2d40;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .config-title {
+            font-size: 15px;
+            color: #d4af37;
+            font-weight: bold;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .form-group label {
+            font-size: 12px;
+            color: #cbd5e1;
+            margin-bottom: 6px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        input[type="text"], input[type="number"], textarea, select {
+            padding: 10px 12px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #f0f4ff;
+            border-radius: 8px;
+            font-size: 13px;
+            outline: none;
+            transition: 0.2s;
+        }
+        
+        input:focus, textarea:focus, select:focus {
+            border-color: #d4af37;
+            box-shadow: 0 0 0 2px rgba(212, 175, 55, 0.1);
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .models-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .model-card {
+            background: #111827;
+            border: 1px solid #1f2d40;
+            border-radius: 10px;
+            padding: 15px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        
+        .model-card:hover {
+            border-color: #d4af37;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(212, 175, 55, 0.1);
+        }
+        
+        .model-card.active {
+            border-color: #34d399;
+            background: #0f3d2a;
+        }
+        
+        .model-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .model-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #d4af37;
+        }
+        
+        .model-badge {
+            font-size: 10px;
+            padding: 3px 8px;
+            border-radius: 10px;
+            background: #1e293b;
+            color: #94a3b8;
+        }
+        
+        .model-info {
+            font-size: 11px;
+            color: #94a3b8;
+            margin-bottom: 8px;
+            line-height: 1.4;
+        }
+        
+        .model-status {
+            font-size: 12px;
+            font-weight: 600;
+            padding: 6px 10px;
+            border-radius: 6px;
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        
+        .status-checking { background: #1e293b; color: #94a3b8; }
+        .status-online { background: #065f46; color: #34d399; }
+        .status-offline { background: #7f1d1d; color: #ef4444; }
+        .status-error { background: #92400e; color: #f59e0b; }
+        
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 13px;
+            transition: 0.2s;
+            flex: 1;
+            min-width: 120px;
+        }
+        
+        .btn-primary {
+            background: #d4af37;
+            color: #0a0f1e;
+        }
+        
+        .btn-primary:hover {
+            background: #e5c158;
+            transform: scale(1.02);
+        }
+        
+        .btn-secondary {
+            background: #334155;
+            color: #cbd5e1;
+        }
+        
+        .btn-secondary:hover {
+            background: #475569;
+        }
+        
+        .output-section {
+            background: #111827;
+            border: 1px solid #1f2d40;
+            border-radius: 10px;
+            padding: 20px;
+        }
+        
+        .output-title {
+            font-size: 14px;
+            color: #d4af37;
+            font-weight: bold;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .alert {
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 13px;
+            display: none;
+        }
+        
+        .alert-error {
+            background: #7f1d1d;
+            color: #fca5a5;
+            border: 1px solid #dc2626;
+        }
+        
+        .alert-success {
+            background: #065f46;
+            color: #86efac;
+            border: 1px solid #16a34a;
+        }
+        
+        .alert-info {
+            background: #0c2d4a;
+            color: #93c5fd;
+            border: 1px solid #0284c7;
+        }
+        
+        .spinner {
+            border: 3px solid #1e293b;
+            border-top-color: #d4af37;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .loading {
+            text-align: center;
+            color: #94a3b8;
+            display: none;
+            padding: 20px;
+        }
+        
+        .response-box {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 15px;
+            min-height: 80px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+        
+        .response-text {
+            color: #cbd5e1;
+            line-height: 1.6;
+            word-wrap: break-word;
+        }
+        
+        .response-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #334155;
+        }
+        
+        .meta-item {
+            font-size: 11px;
+        }
+        
+        .meta-label {
+            color: #94a3b8;
+            font-weight: 600;
+        }
+        
+        .meta-value {
+            color: #d4af37;
+            display: block;
+            margin-top: 2px;
+        }
+        
+        .image-preview {
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 8px;
+            margin-top: 12px;
+            border: 1px solid #334155;
+        }
+        
+        .audio-player {
+            width: 100%;
+            margin-top: 12px;
+        }
+        
+        @media (max-width: 768px) {
+            .config-grid { grid-template-columns: 1fr; }
+            .models-grid { grid-template-columns: 1fr; }
+            .btn { min-width: auto; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎭 MI AI — Complete Model Testing</h1>
+        <p>Test AI Models: Text Generation | Image Creation | Music Production</p>
+    </div>
+
+    <div class="container">
+        <!-- TABS -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('ai-models')">🧠 AI Models</button>
+            <button class="tab-btn" onclick="switchTab('image-gen')">🖼️ Image Generation</button>
+            <button class="tab-btn" onclick="switchTab('music-gen')">🎵 Music Generation</button>
+        </div>
+
+        <!-- TAB 1: AI MODELS -->
+        <div id="ai-models" class="tab-content active">
+            <div class="config-box">
+                <div class="config-title">⚙️ API Configuration</div>
+                <div class="config-grid">
+                    <div class="form-group">
+                        <label>API Base URL</label>
+                        <input type="text" id="aiBaseUrl" placeholder="https://api.example.com" value="https://mitv-tan.vercel.app">
+                    </div>
+                    <div class="form-group">
+                        <label>API Key (Optional)</label>
+                        <input type="text" id="aiApiKey" placeholder="your-api-key">
+                    </div>
+                    <div class="form-group">
+                        <label>Temperature</label>
+                        <input type="number" id="aiTemperature" min="0" max="2" step="0.1" value="0.7">
+                    </div>
+                    <div class="form-group">
+                        <label>Max Tokens</label>
+                        <input type="number" id="aiMaxTokens" min="50" max="2000" value="500">
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-title" style="margin: 20px 0;">📊 Available Models</div>
+            <div class="models-grid" id="aiModelsGrid"></div>
+
+            <div class="output-section">
+                <div class="output-title">🧪 Test Prompt</div>
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label>Message (English/Urdu/Hinglish)</label>
+                    <textarea id="aiMessage" placeholder="Ask anything... Kuch bhi poochho..."></textarea>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="sendAIMessage()">Send Message</button>
+                    <button class="btn btn-secondary" onclick="clearAIResponse()">Clear</button>
+                </div>
+
+                <div class="alert alert-error" id="aiError"></div>
+                <div class="alert alert-success" id="aiSuccess"></div>
+                <div class="loading" id="aiLoading"><div class="spinner"></div>Processing...</div>
+                <div class="response-box" id="aiResponseBox" style="display:none;">
+                    <div class="response-text" id="aiResponseText"></div>
+                    <div class="response-meta" id="aiResponseMeta"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: IMAGE GENERATION -->
+        <div id="image-gen" class="tab-content">
+            <div class="config-box">
+                <div class="config-title">⚙️ Image Generation Settings</div>
+                <div class="config-grid">
+                    <div class="form-group">
+                        <label>API Base URL (SDXL-Turbo)</label>
+                        <input type="text" id="imgBaseUrl" placeholder="https://clause-humid-aneurism.ngrok-free.dev" value="https://clause-humid-aneurism.ngrok-free.dev">
+                    </div>
+                    <div class="form-group">
+                        <label>Width</label>
+                        <input type="number" id="imgWidth" min="256" max="1024" step="64" value="512">
+                    </div>
+                    <div class="form-group">
+                        <label>Height</label>
+                        <input type="number" id="imgHeight" min="256" max="1024" step="64" value="512">
+                    </div>
+                    <div class="form-group">
+                        <label>Steps (1-4)</label>
+                        <input type="number" id="imgSteps" min="1" max="4" value="2">
+                    </div>
+                    <div class="form-group">
+                        <label>Guidance Scale</label>
+                        <input type="number" id="imgGuidance" min="0" max="15" step="0.5" value="0">
+                    </div>
+                </div>
+            </div>
+
+            <div class="output-section">
+                <div class="output-title">🎨 Image Prompt</div>
+                <div class="form-group" style="margin-bottom: 12px;">
+                    <label>Positive Prompt</label>
+                    <textarea id="imgPrompt" placeholder="A beautiful sunset over mountains..."></textarea>
+                </div>
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label>Negative Prompt (Optional)</label>
+                    <textarea id="imgNegative" placeholder="blurry, low quality..." style="min-height: 60px;"></textarea>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="generateImage()">Generate Image</button>
+                    <button class="btn btn-secondary" onclick="clearImageResponse()">Clear</button>
+                </div>
+
+                <div class="alert alert-error" id="imgError"></div>
+                <div class="alert alert-success" id="imgSuccess"></div>
+                <div class="alert alert-info" id="imgInfo"></div>
+                <div class="loading" id="imgLoading"><div class="spinner"></div>Generating image (1-2 min)...</div>
+                <div class="response-box" id="imgResponseBox" style="display:none;">
+                    <img id="imgPreview" class="image-preview" alt="Generated Image">
+                    <div class="response-meta" id="imgMeta"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: MUSIC GENERATION -->
+        <div id="music-gen" class="tab-content">
+            <div class="config-box">
+                <div class="config-title">⚙️ Music Generation Settings</div>
+                <div class="config-grid">
+                    <div class="form-group">
+                        <label>API Base URL (MusicGen)</label>
+                        <input type="text" id="musicBaseUrl" placeholder="https://music-ngrok-url.ngrok-free.dev" value="">
+                    </div>
+                    <div class="form-group">
+                        <label>Duration (seconds)</label>
+                        <input type="number" id="musicDuration" min="5" max="30" value="15">
+                    </div>
+                    <div class="form-group">
+                        <label>Temperature</label>
+                        <input type="number" id="musicTemp" min="0.1" max="2" step="0.1" value="1.0">
+                    </div>
+                    <div class="form-group">
+                        <label>Top-K</label>
+                        <input type="number" id="musicTopK" min="0" max="500" value="250">
+                    </div>
+                </div>
+            </div>
+
+            <div class="output-section">
+                <div class="output-title">🎵 Music Prompt</div>
+                <div class="form-group" style="margin-bottom: 12px;">
+                    <label>Mood (Urdu / English) 🎭</label>
+                    <select id="musicMood" style="margin-bottom: 12px;">
+                        <option value="">Select Mood (Optional)</option>
+                        <optgroup label="Urdu">
+                            <option value="خوشی">خوشی (Happy/Joyful)</option>
+                            <option value="غمی">غمی (Sad/Melancholic)</option>
+                            <option value="آرام">آرام (Calm/Peaceful)</option>
+                            <option value="تیز">تیز (Fast/Energetic)</option>
+                            <option value="اسلامی">اسلامی (Islamic/Spiritual)</option>
+                            <option value="رومانوی">رومانوی (Romantic)</option>
+                            <option value="سنجیدہ">سنجیدہ (Serious/Dramatic)</option>
+                            <option value="بچوں">بچوں (Kids/Playful)</option>
+                        </optgroup>
+                        <optgroup label="English">
+                            <option value="happy">Happy/Joyful</option>
+                            <option value="sad">Sad/Melancholic</option>
+                            <option value="calm">Calm/Peaceful</option>
+                            <option value="fast">Fast/Energetic</option>
+                            <option value="islamic">Islamic/Spiritual</option>
+                            <option value="romantic">Romantic</option>
+                            <option value="serious">Serious/Dramatic</option>
+                            <option value="kids">Kids/Playful</option>
+                        </optgroup>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label>Description (Urdu/Hinglish/English) 🎵</label>
+                    <textarea id="musicPrompt" placeholder="naat, qawwali, ghazal, sufi... or upbeat electronic..."></textarea>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-primary" onclick="generateMusic()">Generate Music</button>
+                    <button class="btn btn-secondary" onclick="clearMusicResponse()">Clear</button>
+                </div>
+
+                <div class="alert alert-error" id="musicError"></div>
+                <div class="alert alert-success" id="musicSuccess"></div>
+                <div class="alert alert-info" id="musicInfo"></div>
+                <div class="loading" id="musicLoading"><div class="spinner"></div>Generating music (1-2 min)...</div>
+                <div class="response-box" id="musicResponseBox" style="display:none;">
+                    <audio id="musicPreview" class="audio-player" controls></audio>
+                    <div class="response-meta" id="musicMeta"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== UTILITY FUNCTIONS =====
+        function switchTab(tabName) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function showAlert(elementId, message, type = 'error') {
+            const el = document.getElementById(elementId);
+            el.textContent = message;
+            el.className = `alert alert-${type}`;
+            el.style.display = 'block';
+            if (type === 'success') setTimeout(() => el.style.display = 'none', 4000);
+        }
+
+        // ===== AI MODELS TAB =====
+        const aiModels = [
+            { id: 'miai-v1', name: 'miai-v1', info: 'Qwen 0.5B (Fast)', badge: '⚡ Fast' },
+            { id: 'miai-v2', name: 'miai-v2', info: 'SmolLM2-135M (Quick)', badge: '🚀 Quick' },
+            { id: 'miai-v3', name: 'miai-v3', info: 'SmolLM2-1.7B (Moderate)', badge: '🌍 Multi' },
+            { id: 'miai-v4', name: 'miai-v4', info: 'Phi-2 2.7B (Best)', badge: '🧠 Best' }
+        ];
+
+        let selectedAIModel = 'miai-v1';
+
+        window.addEventListener('load', () => {
+            initAIModels();
+            setInterval(checkAllAIModels, 30000);
+        });
+
+        function initAIModels() {
+            const grid = document.getElementById('aiModelsGrid');
+            grid.innerHTML = aiModels.map(m => `
+                <div class="model-card" onclick="selectAIModel('${m.id}')">
+                    <div class="model-header">
+                        <div class="model-title">${m.name}</div>
+                        <div class="model-badge">${m.badge}</div>
+                    </div>
+                    <div class="model-info">${m.info}</div>
+                    <div class="model-status status-checking" id="status-${m.id}">⏳ Checking...</div>
+                </div>
+            `).join('');
+            checkAllAIModels();
+        }
+
+        async function checkAllAIModels() {
+            const url = document.getElementById('aiBaseUrl').value;
+            if (!url) return;
+            aiModels.forEach(m => checkAIModelStatus(m.id, url));
+        }
+
+        async function checkAIModelStatus(modelId, baseUrl) {
+            try {
+                const response = await fetch(`${baseUrl}/api/status/${modelId}`, { method: 'GET' });
+                const el = document.getElementById(`status-${modelId}`);
+                if (response.ok) {
+                    el.textContent = '🟢 ONLINE';
+                    el.className = 'model-status status-online';
+                } else {
+                    el.textContent = '🔴 OFFLINE';
+                    el.className = 'model-status status-offline';
+                }
+            } catch {
+                document.getElementById(`status-${modelId}`).className = 'model-status status-offline';
+            }
+        }
+
+        function selectAIModel(modelId) {
+            selectedAIModel = modelId;
+            document.querySelectorAll('#aiModelsGrid .model-card').forEach((el, i) => {
+                el.classList.toggle('active', aiModels[i].id === modelId);
+            });
+        }
+
+        async function sendAIMessage() {
+            const baseUrl = document.getElementById('aiBaseUrl').value;
+            const message = document.getElementById('aiMessage').value;
+            if (!baseUrl || !message) {
+                showAlert('aiError', '❌ Please fill all fields', 'error');
+                return;
+            }
+
+            document.getElementById('aiLoading').style.display = 'block';
+            document.getElementById('aiResponseBox').style.display = 'none';
+            document.getElementById('aiError').style.display = 'none';
+
+            try {
+                const startTime = Date.now();
+                const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: selectedAIModel,
+                        messages: [{ role: 'user', content: message }],
+                        temperature: parseFloat(document.getElementById('aiTemperature').value),
+                        max_tokens: parseInt(document.getElementById('aiMaxTokens').value)
+                    })
+                });
+
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+
+                if (data.choices?.[0]?.message?.content) {
+                    document.getElementById('aiResponseText').textContent = data.choices[0].message.content;
+                    document.getElementById('aiResponseMeta').innerHTML = `
+                        <div class="meta-item"><span class="meta-label">Model</span><span class="meta-value">${selectedAIModel}</span></div>
+                        <div class="meta-item"><span class="meta-label">Response Time</span><span class="meta-value">${duration}s</span></div>
+                    `;
+                    document.getElementById('aiResponseBox').style.display = 'block';
+                    showAlert('aiSuccess', `✅ Response from ${selectedAIModel}`, 'success');
+                }
+            } catch (e) {
+                showAlert('aiError', `❌ ${e.message}`, 'error');
+            } finally {
+                document.getElementById('aiLoading').style.display = 'none';
+            }
+        }
+
+        function clearAIResponse() {
+            document.getElementById('aiMessage').value = '';
+            document.getElementById('aiResponseBox').style.display = 'none';
+            document.getElementById('aiError').style.display = 'none';
+        }
+
+        // ===== IMAGE GENERATION TAB =====
+        async function generateImage() {
+            const baseUrl = document.getElementById('imgBaseUrl').value;
+            const prompt = document.getElementById('imgPrompt').value;
+            if (!baseUrl || !prompt) {
+                showAlert('imgError', '❌ Please enter API URL and prompt', 'error');
+                return;
+            }
+
+            document.getElementById('imgLoading').style.display = 'block';
+            document.getElementById('imgResponseBox').style.display = 'none';
+            document.getElementById('imgError').style.display = 'none';
+            showAlert('imgInfo', 'ℹ️ Generating image... (SDXL-Turbo on CPU ~1-2min)', 'info');
+
+            try {
+                const startTime = Date.now();
+                const response = await fetch(`${baseUrl}/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        negative_prompt: document.getElementById('imgNegative').value || '',
+                        width: parseInt(document.getElementById('imgWidth').value),
+                        height: parseInt(document.getElementById('imgHeight').value),
+                        num_inference_steps: parseInt(document.getElementById('imgSteps').value),
+                        guidance_scale: parseFloat(document.getElementById('imgGuidance').value)
+                    })
+                });
+
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+
+                if (data.image_url) {
+                    document.getElementById('imgPreview').src = data.image_url;
+                    document.getElementById('imgMeta').innerHTML = `
+                        <div class="meta-item"><span class="meta-label">Model</span><span class="meta-value">SDXL-Turbo</span></div>
+                        <div class="meta-item"><span class="meta-label">Generation Time</span><span class="meta-value">${duration}s</span></div>
+                        <div class="meta-item"><span class="meta-label">Size</span><span class="meta-value">${document.getElementById('imgWidth').value}x${document.getElementById('imgHeight').value}</span></div>
+                    `;
+                    document.getElementById('imgResponseBox').style.display = 'block';
+                    showAlert('imgSuccess', `✅ Image generated in ${duration}s`, 'success');
+                }
+            } catch (e) {
+                showAlert('imgError', `❌ ${e.message}`, 'error');
+            } finally {
+                document.getElementById('imgLoading').style.display = 'none';
+            }
+        }
+
+        function clearImageResponse() {
+            document.getElementById('imgPrompt').value = '';
+            document.getElementById('imgNegative').value = '';
+            document.getElementById('imgResponseBox').style.display = 'none';
+            document.getElementById('imgError').style.display = 'none';
+        }
+
+        // ===== MUSIC GENERATION TAB =====
+        async function generateMusic() {
+            const baseUrl = document.getElementById('musicBaseUrl').value;
+            const prompt = document.getElementById('musicPrompt').value;
+            const mood = document.getElementById('musicMood').value;
+            if (!baseUrl || !prompt) {
+                showAlert('musicError', '❌ Please enter API URL and prompt', 'error');
+                return;
+            }
+
+            document.getElementById('musicLoading').style.display = 'block';
+            document.getElementById('musicResponseBox').style.display = 'none';
+            document.getElementById('musicError').style.display = 'none';
+            showAlert('musicInfo', 'ℹ️ Generating music... (MusicGen Small ~1-2min) 🎵', 'info');
+
+            try {
+                const startTime = Date.now();
+                const response = await fetch(`${baseUrl}/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt: prompt,
+                        mood: mood || null,
+                        duration: parseInt(document.getElementById('musicDuration').value),
+                        temperature: parseFloat(document.getElementById('musicTemp').value),
+                        top_k: parseInt(document.getElementById('musicTopK').value)
+                    })
+                });
+
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+
+                if (data.audio_url) {
+                    document.getElementById('musicPreview').src = data.audio_url;
+                    let metaHTML = `
+                        <div class="meta-item"><span class="meta-label">Model</span><span class="meta-value">MusicGen Small</span></div>
+                        <div class="meta-item"><span class="meta-label">Generation Time</span><span class="meta-value">${duration}s</span></div>
+                        <div class="meta-item"><span class="meta-label">Duration</span><span class="meta-value">${data.duration}s</span></div>
+                    `;
+                    if (data.prompt_expanded) {
+                        metaHTML += `<div class="meta-item"><span class="meta-label">Expanded Prompt</span><span class="meta-value">${data.prompt_expanded}</span></div>`;
+                    }
+                    document.getElementById('musicMeta').innerHTML = metaHTML;
+                    document.getElementById('musicResponseBox').style.display = 'block';
+                    showAlert('musicSuccess', `✅ Music generated in ${duration}s (Urdu/Hinglish Friendly)`, 'success');
+                }
+            } catch (e) {
+                showAlert('musicError', `❌ ${e.message}`, 'error');
+            } finally {
+                document.getElementById('musicLoading').style.display = 'none';
+            }
+        }
+
+        function clearMusicResponse() {
+            document.getElementById('musicPrompt').value = '';
+            document.getElementById('musicResponseBox').style.display = 'none';
+            document.getElementById('musicError').style.display = 'none';
+        }
+    </script>
+</body>
+</html>

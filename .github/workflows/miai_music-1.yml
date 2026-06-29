@@ -2,7 +2,7 @@ name: "miai-music | MusicGen Large | 24/7 Music Engine"
 
 on:
   schedule:
-    - cron: '0 */6 * * *'   # Har 6 ghante me auto restart
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 jobs:
@@ -13,7 +13,7 @@ jobs:
     env:
       MODEL_NAME: "miai-music"
       HF_REPO: "facebook/musicgen-large"
-      CACHE_KEY: "miai-music-musicgenlarge-v1"
+      CACHE_KEY: "miai-music-musicgenlarge-v2"
 
     steps:
       - name: "📥 Checkout"
@@ -35,14 +35,17 @@ jobs:
         if: steps.cache-model.outputs.cache-hit != 'true'
         run: |
           mkdir -p ./model_files/miai-music
-          pip install -U "huggingface_hub[cli]"
+          pip install -U "huggingface_hub"
           echo "🔄 Downloading facebook/musicgen-large (~3.3GB)..."
-          huggingface-cli download facebook/musicgen-large \
-            --local-dir ./model_files/miai-music \
-            --exclude "*.fp32" \
-            --exclude "*.onnx*" \
-            --exclude "openvino*"
-          echo "✅ Download complete"
+          python -c "
+          from huggingface_hub import snapshot_download
+          snapshot_download(
+            repo_id='facebook/musicgen-large',
+            local_dir='./model_files/miai-music',
+            ignore_patterns=['*.fp32', '*.onnx*', 'openvino*']
+          )
+          print('✅ Download complete')
+          "
 
       - name: "📚 Install System Dependencies (FFmpeg)"
         run: |
@@ -76,16 +79,13 @@ jobs:
           MODEL_PATH: "./model_files/miai-music"
           PORT: "8002"
         run: |
-          # Start server in background
           python server_music_urdu.py > server.log 2>&1 &
           SERVER_PID=$!
           echo "Server started (PID: $SERVER_PID)"
 
-          # Large model loading zyada time leta hai
           echo "⏳ Loading MusicGen Large model (2-3 min)..."
           sleep 120
 
-          # Health check
           echo "🔍 Health check..."
           for i in {1..30}; do
             if curl -sf http://127.0.0.1:8002/health > /dev/null 2>&1; then
@@ -96,7 +96,6 @@ jobs:
             sleep 10
           done
 
-          # Get Ngrok URL
           echo "📡 Fetching public URL..."
           sleep 5
           PUBLIC_URL=$(curl -sf http://127.0.0.1:4040/api/tunnels 2>/dev/null | grep -o '"public_url":"https://[^"]*' | cut -d'"' -f4 | head -1)
@@ -110,11 +109,9 @@ jobs:
           echo "🌐 Public URL: $PUBLIC_URL"
 
           echo "🔄 Manual Setup Required:"
-          echo "   1. Go to Vercel Dashboard → Your Project → Settings → Environment Variables"
-          echo "   2. Add/Update: MIAI_MUSIC_URL = $PUBLIC_URL"
-          echo "   3. Target: Production, Preview, Development"
+          echo "   1. Vercel Dashboard → Settings → Environment Variables"
+          echo "   2. Add: MIAI_MUSIC_URL = $PUBLIC_URL"
 
-          # Trigger Vercel redeploy via webhook
           if [ -n "${VERCEL_DEPLOY_HOOK_URL}" ]; then
             echo "🚀 Triggering Vercel redeploy..."
             curl -X POST "${VERCEL_DEPLOY_HOOK_URL}" 2>/dev/null && echo "✅ Redeploy triggered"
@@ -122,11 +119,9 @@ jobs:
             echo "⚠️ VERCEL_DEPLOY_HOOK_URL secret not set"
           fi
 
-          # Keep alive (5 hours)
           echo "⏱️ Running for 5hr..."
           sleep 18000
 
-          # Auto-trigger next run
           curl -X POST "https://api.github.com/repos/${{ github.repository }}/actions/workflows/miai_music.yml/dispatches" \
             -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \

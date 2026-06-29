@@ -1,0 +1,115 @@
+name: "miai-video | text-to-video-ms-1.7b | 24/7 Video Engine"
+
+on:
+  schedule:
+    - cron: '0 */5 * * *'   # Har 5 ghante me auto restart
+  workflow_dispatch:
+
+jobs:
+  miai-video-engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    env:
+      MODEL_NAME: "miai-video"
+      HF_REPO: "ali-vilab/text-to-video-ms-1.7b"
+      CACHE_KEY: "miai-video-t2v17b-v1"
+
+    steps:
+      - name: "📥 Checkout"
+        uses: actions/checkout@v4
+
+      - name: "🐍 Python 3.10 Setup"
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: "📦 Cache Model Files"
+        id: cache-model
+        uses: actions/cache@v4
+        with:
+          path: ./model_files/miai-video
+          key: ${{ env.CACHE_KEY }}-${{ runner.os }}
+
+      - name: "⬇️ Download text-to-video-ms-1.7b Model"
+        if: steps.cache-model.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ./model_files/miai-video
+          pip install -U "huggingface_hub[cli]"
+          echo "🔄 Downloading ali-vilab/text-to-video-ms-1.7b (~5.4GB)..."
+          huggingface-cli download ali-vilab/text-to-video-ms-1.7b \
+            --local-dir ./model_files/miai-video \
+            --exclude "*.fp16*" "*.onnx*" "openvino*" "*.msgpack" "*.h5"
+          echo "✅ Download complete"
+
+      - name: "📚 Install Dependencies"
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi==0.110.0 uvicorn==0.28.0 pyngrok requests
+          pip install transformers==4.45.0 accelerate sentencepiece protobuf
+          pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install diffusers==0.30.0 imageio imageio-ffmpeg opencv-python-headless
+
+      - name: "🚀 Start miai-video Engine"
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_NAME: ${{ secrets.VERCEL_PROJECT_NAME }}
+          MODEL_PATH: "./model_files/miai-video"
+          PORT: "8002"
+        run: |
+          # Start server in background
+          python server_video.py > server.log 2>&1 &
+          SERVER_PID=$!
+          echo "Server started (PID: $SERVER_PID)"
+
+          # Wait for model loading
+          echo "⏳ Loading model..."
+          sleep 60
+
+          # Health check
+          echo "🔍 Health check..."
+          for i in {1..20}; do
+            if curl -sf http://127.0.0.1:8002/health > /dev/null 2>&1; then
+              echo "✅ Server is healthy"
+              break
+            fi
+            echo "Wait $i/20..."
+            sleep 5
+          done
+
+          # Get Ngrok URL
+          echo "📡 Fetching public URL..."
+          sleep 5
+          PUBLIC_URL=$(curl -sf http://127.0.0.1:4040/api/tunnels 2>/dev/null | grep -o '"public_url":"https://[^"]*' | cut -d'"' -f4 | head -1)
+
+          if [ -z "$PUBLIC_URL" ]; then
+            echo "❌ Failed to get URL"
+            cat server.log
+            exit 1
+          fi
+
+          echo "🌐 Public URL: $PUBLIC_URL"
+
+          # Update Vercel
+          echo "🔄 Syncing to Vercel..."
+          curl -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}/env/MIAI_VIDEO_URL" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" 2>/dev/null || true
+
+          curl -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_NAME}/env" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"key\":\"MIAI_VIDEO_URL\",\"value\":\"${PUBLIC_URL}\",\"type\":\"plain\",\"target\":[\"production\",\"preview\",\"development\"]}" \
+            2>/dev/null && echo "✅ Vercel updated"
+
+          # Keep alive
+          echo "⏱️ Running for 5hr 40min..."
+          sleep 20100
+
+          # Auto-trigger next run
+          curl -X POST "https://api.github.com/repos/${{ github.repository }}/actions/workflows/miai_video.yml/dispatches" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -d '{"ref":"main"}' 2>/dev/null && echo "🔄 Next run scheduled"
+
+          wait $SERVER_PID

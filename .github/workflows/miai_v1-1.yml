@@ -101,13 +101,20 @@ jobs:
           
           # Update Vercel
           echo "🔄 Syncing to Vercel..."
-          curl -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}/env/MIAI_V1_URL" \
-            -H "Authorization: Bearer ${VERCEL_TOKEN}" 2>/dev/null || true
+          # Try to delete old env var (404 if doesn't exist is OK)
+          DEL_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}/env/MIAI_V1_URL" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}")
+          DEL_CODE=$(echo "$DEL_RESP" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
+          if [ "$DEL_CODE" = "204" ] || [ "$DEL_CODE" = "404" ]; then
+            echo "✓ Old MIAI_V1_URL deleted or didn't exist (HTTP $DEL_CODE)"
+          else
+            echo "⚠️ DELETE failed with HTTP $DEL_CODE — will try to CREATE anyway"
+          fi
           
-          ENV_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_NAME}/env" \
+          ENV_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PUT "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_NAME}/env/MIAI_V1_URL" \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"key\":\"MIAI_V1_URL\",\"value\":\"${PUBLIC_URL}\",\"type\":\"plain\",\"target\":[\"production\",\"preview\",\"development\"]}")
+            -d "{\"value\":\"${PUBLIC_URL}\",\"type\":\"plain\",\"target\":[\"production\",\"preview\",\"development\"]}")
           HTTP_CODE=$(echo "$ENV_RESP" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
           ENV_BODY=$(echo "$ENV_RESP" | sed "s/HTTP_STATUS:[0-9]*//")
           if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then

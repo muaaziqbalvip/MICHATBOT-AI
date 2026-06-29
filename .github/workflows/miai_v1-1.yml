@@ -104,11 +104,18 @@ jobs:
           curl -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}/env/MIAI_V1_URL" \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" 2>/dev/null || true
           
-          curl -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_NAME}/env" \
+          ENV_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_NAME}/env" \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"key\":\"MIAI_V1_URL\",\"value\":\"${PUBLIC_URL}\",\"type\":\"plain\",\"target\":[\"production\",\"preview\",\"development\"]}" \
-            2>/dev/null && echo "✅ Vercel updated"
+            -d "{\"key\":\"MIAI_V1_URL\",\"value\":\"${PUBLIC_URL}\",\"type\":\"plain\",\"target\":[\"production\",\"preview\",\"development\"]}")
+          HTTP_CODE=$(echo "$ENV_RESP" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
+          ENV_BODY=$(echo "$ENV_RESP" | sed "s/HTTP_STATUS:[0-9]*//")
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo "✅ Vercel env updated (HTTP $HTTP_CODE)"
+          else
+            echo "❌ Vercel env update FAILED (HTTP $HTTP_CODE)"
+            echo "Response: $ENV_BODY"
+          fi
           
           # Trigger a real redeploy so the new env var is actually picked up
           # (updating env vars via API alone does NOT refresh already-deployed

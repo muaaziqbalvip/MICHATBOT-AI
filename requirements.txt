@@ -8,3 +8,12 @@ accelerate
 sentencepiece
 protobuf
 pyngrok
+
+# Image generation (miai-img / SDXL-Turbo)
+diffusers==0.30.0
+pillow
+
+# Video generation (miai-video / text-to-video-ms-1.7b)
+imageio
+imageio-ffmpeg
+opencv-python-headless

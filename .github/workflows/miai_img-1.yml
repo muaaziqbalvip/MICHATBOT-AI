@@ -60,6 +60,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_NAME: ${{ secrets.VERCEL_PROJECT_NAME }}
           VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+          VERCEL_TEAM_SLUG: ${{ secrets.VERCEL_TEAM_SLUG }}
           MODEL_PATH: "./model_files/miai-img"
           PORT: "8001"
         run: |
@@ -96,10 +97,16 @@ jobs:
 
           echo "🌐 Public URL: $PUBLIC_URL"
 
+          # Build team query param if VERCEL_TEAM_SLUG is set
+          TEAM_QS=""
+          if [ -n "${VERCEL_TEAM_SLUG}" ]; then
+            TEAM_QS="?teamId=${VERCEL_TEAM_SLUG}"
+          fi
+
           # Update Vercel
           echo "🔄 Syncing to Vercel..."
           # Try to delete old env var (404 if doesn't exist is OK)
-          DEL_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}/env/MIAI_IMG_URL" \
+          DEL_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}/env/MIAI_IMG_URL${TEAM_QS}" \
             -H "Authorization: Bearer ${VERCEL_TOKEN}")
           DEL_CODE=$(echo "$DEL_RESP" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
           if [ "$DEL_CODE" = "204" ] || [ "$DEL_CODE" = "404" ]; then
@@ -108,7 +115,7 @@ jobs:
             echo "⚠️ DELETE failed with HTTP $DEL_CODE — will try to CREATE anyway"
           fi
 
-          ENV_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PUT "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_NAME}/env/MIAI_IMG_URL" \
+          ENV_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PUT "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_NAME}/env/MIAI_IMG_URL${TEAM_QS}" \
             -H "Authorization: Bearer ${VERCEL_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "{\"value\":\"${PUBLIC_URL}\",\"type\":\"plain\",\"target\":[\"production\",\"preview\",\"development\"]}")

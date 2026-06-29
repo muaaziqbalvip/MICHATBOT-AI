@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MI AI — Test Console</title>
+<style>
+  :root{
+    --bg:#0a0e14; --panel:#121822; --border:#1f2937; --text:#e5e7eb;
+    --muted:#8b97a8; --accent:#5eead4; --accent2:#7dd3fc; --danger:#f87171; --ok:#34d399;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:'Segoe UI',system-ui,-apple-system,sans-serif;
+    background:radial-gradient(circle at 20% 0%, #15202b, #0a0e14 60%);
+    color:var(--text); min-height:100vh; padding:20px;
+  }
+  h1{font-size:1.4rem; margin:0 0 4px;}
+  h1 span{color:var(--accent);}
+  .sub{color:var(--muted); font-size:.85rem; margin-bottom:18px;}
+  .wrap{max-width:980px; margin:0 auto;}
+  .top-bar{
+    display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+    background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:14px; margin-bottom:18px;
+  }
+  .top-bar label{font-size:.78rem; color:var(--muted); display:block; margin-bottom:4px;}
+  .top-bar input{
+    background:#0d1420; border:1px solid var(--border); color:var(--text);
+    border-radius:8px; padding:8px 10px; font-size:.85rem; width:280px;
+  }
+  .top-bar .grow{flex:1; min-width:280px;}
+  .status-dot{width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:6px; background:var(--muted);}
+  .status-dot.ok{background:var(--ok); box-shadow:0 0 8px var(--ok);}
+  .status-dot.bad{background:var(--danger);}
+  #connStatus{font-size:.78rem; color:var(--muted);}
+
+  .tabs{display:flex; gap:8px; margin-bottom:14px;}
+  .tab{
+    flex:1; text-align:center; padding:10px; border-radius:10px; cursor:pointer;
+    background:var(--panel); border:1px solid var(--border); color:var(--muted);
+    font-size:.85rem; font-weight:600; user-select:none; transition:.15s;
+  }
+  .tab.active{color:#0a0e14; background:var(--accent); border-color:var(--accent);}
+
+  .panel{
+    background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    padding:18px; display:none;
+  }
+  .panel.active{display:block;}
+
+  textarea, select{
+    width:100%; background:#0d1420; border:1px solid var(--border); color:var(--text);
+    border-radius:8px; padding:10px; font-size:.9rem; font-family:inherit; resize:vertical;
+  }
+  select{cursor:pointer;}
+  label.field{font-size:.78rem; color:var(--muted); display:block; margin:10px 0 5px;}
+  .row{display:flex; gap:10px; flex-wrap:wrap;}
+  .row > div{flex:1; min-width:140px;}
+  .row input[type=number]{
+    width:100%; background:#0d1420; border:1px solid var(--border); color:var(--text);
+    border-radius:8px; padding:9px 10px; font-size:.85rem;
+  }
+
+  button.run{
+    margin-top:14px; background:linear-gradient(135deg,var(--accent),var(--accent2));
+    color:#06141a; font-weight:700; border:none; border-radius:10px;
+    padding:11px 22px; cursor:pointer; font-size:.92rem;
+  }
+  button.run:disabled{opacity:.5; cursor:not-allowed;}
+  button.secondary{
+    margin-top:14px; margin-left:8px; background:transparent; color:var(--muted);
+    border:1px solid var(--border); border-radius:10px; padding:11px 16px; cursor:pointer;
+  }
+
+  .out{
+    margin-top:16px; background:#070b11; border:1px solid var(--border); border-radius:10px;
+    padding:14px; font-size:.85rem; white-space:pre-wrap; word-break:break-word;
+    max-height:420px; overflow:auto; color:#cbd5e1;
+  }
+  .out.empty{color:var(--muted); font-style:italic;}
+  .meta{font-size:.75rem; color:var(--muted); margin-top:8px;}
+  .spinner{
+    display:inline-block; width:13px; height:13px; border:2px solid rgba(255,255,255,.25);
+    border-top-color:#06141a; border-radius:50%; animation:spin .7s linear infinite;
+    margin-right:6px; vertical-align:-2px;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  img.result, video.result{max-width:100%; border-radius:10px; margin-top:12px; border:1px solid var(--border);}
+  .chat-log{display:flex; flex-direction:column; gap:10px; margin-bottom:14px;}
+  .msg{padding:10px 12px; border-radius:10px; font-size:.88rem; max-width:85%;}
+  .msg.user{background:#1e293b; align-self:flex-end;}
+  .msg.bot{background:#0d1420; border:1px solid var(--border); align-self:flex-start;}
+  .err{color:var(--danger);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>MI <span>AI</span> — Test Console</h1>
+  <div class="sub">miai-chi.vercel.app gateway tester · text / image / video</div>
+
+  <div class="top-bar">
+    <div class="grow">
+      <label>Gateway Base URL</label>
+      <input type="text" id="baseUrl" value="https://miai-chi.vercel.app" style="width:100%">
+    </div>
+    <div>
+      <label>API Key</label>
+      <input type="text" id="apiKey" placeholder="miai-live-muaaz19720-XXXX or miai-master-token-786">
+    </div>
+    <div style="align-self:flex-end;">
+      <span id="connStatus"><span class="status-dot" id="connDot"></span>not checked</span>
+    </div>
+    <div style="align-self:flex-end;">
+      <button class="secondary" style="margin:0; padding:9px 14px;" onclick="checkStatus()">Check Status</button>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="text" onclick="switchTab('text')">💬 Text Chat</div>
+    <div class="tab" data-tab="image" onclick="switchTab('image')">🖼️ Image Gen</div>
+    <div class="tab" data-tab="video" onclick="switchTab('video')">🎬 Video Gen</div>
+  </div>
+
+  <!-- TEXT -->
+  <div class="panel active" id="panel-text">
+    <label class="field">Model</label>
+    <select id="textModel">
+      <option value="miai-v1">miai-v1 — Qwen2.5-0.5B (Ultra Fast)</option>
+      <option value="miai-v2">miai-v2 — Qwen2.5-1.5B (Balanced)</option>
+      <option value="miai-v3">miai-v3 — SmolLM2-1.7B (Multilingual)</option>
+      <option value="miai-v4">miai-v4 — Phi-2 2.7B (Deep Reasoning)</option>
+    </select>
+    <label class="field">Message</label>
+    <textarea id="textPrompt" rows="3" placeholder="Salaam! Apna sawal yahan likho...">Salaam! Aap kaun ho?</textarea>
+    <div class="row">
+      <div>
+        <label class="field">Temperature</label>
+        <input type="number" id="textTemp" value="0.7" step="0.1" min="0" max="2">
+      </div>
+      <div>
+        <label class="field">Max Tokens</label>
+        <input type="number" id="textMaxTokens" value="256" step="16" min="16">
+      </div>
+    </div>
+    <button class="run" id="textBtn" onclick="runText()">Send</button>
+    <button class="secondary" onclick="clearChat()">Clear</button>
+    <div class="chat-log" id="chatLog"></div>
+    <div class="out empty" id="textOut">Response JSON / errors yahan dikhega.</div>
+  </div>
+
+  <!-- IMAGE -->
+  <div class="panel" id="panel-image">
+    <label class="field">Prompt</label>
+    <textarea id="imgPrompt" rows="2" placeholder="A serene mosque at sunset, detailed architecture">A serene mosque at sunset, detailed architecture</textarea>
+    <label class="field">Negative Prompt (optional)</label>
+    <textarea id="imgNegPrompt" rows="2" placeholder="blurry, low quality"></textarea>
+    <div class="row">
+      <div><label class="field">Width</label><input type="number" id="imgWidth" value="512" step="64"></div>
+      <div><label class="field">Height</label><input type="number" id="imgHeight" value="512" step="64"></div>
+      <div><label class="field">Steps</label><input type="number" id="imgSteps" value="2" min="1"></div>
+      <div><label class="field">Guidance Scale</label><input type="number" id="imgGuidance" value="0" step="0.5"></div>
+    </div>
+    <button class="run" id="imgBtn" onclick="runImage()">Generate Image</button>
+    <div class="meta">SDXL-Turbo on CPU — ~1-2 min per image. Request timeout is 180s on gateway side.</div>
+    <div class="out empty" id="imgOut">Result yahan dikhega.</div>
+  </div>
+
+  <!-- VIDEO -->
+  <div class="panel" id="panel-video">
+    <label class="field">Prompt</label>
+    <textarea id="vidPrompt" rows="2" placeholder="A cat walking on a beach at sunset">A cat walking on a beach at sunset</textarea>
+    <div class="row">
+      <div><label class="field">Num Frames</label><input type="number" id="vidFrames" value="16" min="4"></div>
+      <div><label class="field">Steps</label><input type="number" id="vidSteps" value="25" min="1"></div>
+    </div>
+    <button class="run" id="vidBtn" onclick="runVideo()">Start Video Job</button>
+    <div class="meta">Async job — gateway returns job_id immediately, then this page auto-polls /v1/videos/status/{job_id} every 10s. CPU render takes 5-15 min.</div>
+    <div class="out empty" id="vidOut">Job status yahan dikhega.</div>
+  </div>
+</div>
+
+<script>
+function base(){ return document.getElementById('baseUrl').value.trim().replace(/\/$/,''); }
+function key(){ return document.getElementById('apiKey').value.trim(); }
+function authHeaders(){
+  return { 'Content-Type':'application/json', 'Authorization': 'Bearer ' + key() };
+}
+
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active', p.id==='panel-'+name));
+}
+
+async function checkStatus(){
+  const dot = document.getElementById('connDot');
+  const label = document.getElementById('connStatus');
+  dot.className = 'status-dot';
+  label.innerHTML = '<span class="status-dot" id="connDot"></span>checking...';
+  try{
+    const res = await fetch(base() + '/api/status');
+    const data = await res.json();
+    const anyOnline = Object.values(data).some(v => v.online);
+    document.getElementById('connDot').className = 'status-dot ' + (anyOnline ? 'ok' : 'bad');
+    label.innerHTML = document.getElementById('connDot').outerHTML +
+      (anyOnline ? 'gateway reachable' : 'gateway up, all engines offline');
+    label.title = JSON.stringify(data, null, 2);
+  }catch(e){
+    document.getElementById('connDot').className = 'status-dot bad';
+    label.innerHTML = document.getElementById('connDot').outerHTML + 'unreachable: ' + e.message;
+  }
+}
+
+function setBusy(btn, busy, idleText){
+  btn.disabled = busy;
+  btn.innerHTML = busy ? '<span class="spinner"></span>Working...' : idleText;
+}
+
+function showOut(elId, content, isError){
+  const el = document.getElementById(elId);
+  el.classList.remove('empty');
+  el.classList.toggle('err', !!isError);
+  el.textContent = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+}
+
+// ---------- TEXT ----------
+let chatHistory = [];
+function clearChat(){
+  chatHistory = [];
+  document.getElementById('chatLog').innerHTML = '';
+  showOut('textOut', 'Response JSON / errors yahan dikhega.');
+  document.getElementById('textOut').classList.add('empty');
+}
+function appendMsg(role, content){
+  const log = document.getElementById('chatLog');
+  const div = document.createElement('div');
+  div.className = 'msg ' + (role === 'user' ? 'user' : 'bot');
+  div.textContent = content;
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function runText(){
+  if(!key()){ alert('API key daalo pehle.'); return; }
+  const btn = document.getElementById('textBtn');
+  const prompt = document.getElementById('textPrompt').value.trim();
+  if(!prompt) return;
+
+  chatHistory.push({role:'user', content: prompt});
+  appendMsg('user', prompt);
+  document.getElementById('textPrompt').value = '';
+  setBusy(btn, true, 'Send');
+
+  const body = {
+    model: document.getElementById('textModel').value,
+    messages: chatHistory,
+    temperature: parseFloat(document.getElementById('textTemp').value),
+    max_tokens: parseInt(document.getElementById('textMaxTokens').value)
+  };
+
+  try{
+    const res = await fetch(base() + '/v1/chat/completions', {
+      method:'POST', headers: authHeaders(), body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok){ showOut('textOut', data, true); setBusy(btn, false, 'Send'); return; }
+
+    let reply = '';
+    try{ reply = data.choices[0].message.content; }
+    catch(e){ reply = JSON.stringify(data); }
+
+    chatHistory.push({role:'assistant', content: reply});
+    appendMsg('bot', reply);
+    showOut('textOut', data, false);
+  }catch(e){
+    showOut('textOut', 'Request failed: ' + e.message, true);
+  }
+  setBusy(btn, false, 'Send');
+}
+
+// ---------- IMAGE ----------
+async function runImage(){
+  if(!key()){ alert('API key daalo pehle.'); return; }
+  const btn = document.getElementById('imgBtn');
+  setBusy(btn, true, 'Generate Image');
+  showOut('imgOut', 'Generating... (CPU, can take 1-2 min)', false);
+
+  const body = {
+    prompt: document.getElementById('imgPrompt').value,
+    negative_prompt: document.getElementById('imgNegPrompt').value || null,
+    width: parseInt(document.getElementById('imgWidth').value),
+    height: parseInt(document.getElementById('imgHeight').value),
+    steps: parseInt(document.getElementById('imgSteps').value),
+    guidance_scale: parseFloat(document.getElementById('imgGuidance').value)
+  };
+
+  try{
+    const res = await fetch(base() + '/v1/images/generations', {
+      method:'POST', headers: authHeaders(), body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok){ showOut('imgOut', data, true); setBusy(btn, false, 'Generate Image'); return; }
+
+    const b64 = data?.data?.[0]?.b64_json;
+    showOut('imgOut', data, false);
+    if(b64){
+      const img = document.createElement('img');
+      img.className = 'result';
+      img.src = 'data:image/png;base64,' + b64;
+      document.getElementById('imgOut').after(img);
+    }
+  }catch(e){
+    showOut('imgOut', 'Request failed: ' + e.message, true);
+  }
+  setBusy(btn, false, 'Generate Image');
+}
+
+// ---------- VIDEO ----------
+let videoPollTimer = null;
+
+async function runVideo(){
+  if(!key()){ alert('API key daalo pehle.'); return; }
+  if(videoPollTimer) clearInterval(videoPollTimer);
+  const btn = document.getElementById('vidBtn');
+  setBusy(btn, true, 'Start Video Job');
+
+  const body = {
+    prompt: document.getElementById('vidPrompt').value,
+    num_frames: parseInt(document.getElementById('vidFrames').value),
+    steps: parseInt(document.getElementById('vidSteps').value)
+  };
+
+  try{
+    const res = await fetch(base() + '/v1/videos/generations', {
+      method:'POST', headers: authHeaders(), body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok){ showOut('vidOut', data, true); setBusy(btn, false, 'Start Video Job'); return; }
+
+    showOut('vidOut', data, false);
+    if(data.job_id){
+      pollVideo(data.job_id);
+    } else {
+      setBusy(btn, false, 'Start Video Job');
+    }
+  }catch(e){
+    showOut('vidOut', 'Request failed: ' + e.message, true);
+    setBusy(btn, false, 'Start Video Job');
+  }
+}
+
+function pollVideo(jobId){
+  const btn = document.getElementById('vidBtn');
+  let tries = 0;
+  videoPollTimer = setInterval(async () => {
+    tries++;
+    try{
+      const res = await fetch(base() + '/v1/videos/status/' + jobId);
+      const data = await res.json();
+      showOut('vidOut', { tries, ...data }, data.status === 'failed');
+
+      if(data.status === 'completed'){
+        clearInterval(videoPollTimer);
+        setBusy(btn, false, 'Start Video Job');
+        const b64 = data?.result?.data?.[0]?.b64_mp4;
+        if(b64){
+          const vid = document.createElement('video');
+          vid.className = 'result';
+          vid.controls = true;
+          vid.src = 'data:video/mp4;base64,' + b64;
+          document.getElementById('vidOut').after(vid);
+        }
+      } else if(data.status === 'failed'){
+        clearInterval(videoPollTimer);
+        setBusy(btn, false, 'Start Video Job');
+      }
+      // 90 tries * 10s = 15 min ceiling, then stop auto-polling
+      if(tries >= 90){
+        clearInterval(videoPollTimer);
+        setBusy(btn, false, 'Start Video Job');
+      }
+    }catch(e){
+      // network blip — keep trying
+    }
+  }, 10000);
+}
+</script>
+</body>
+</html>

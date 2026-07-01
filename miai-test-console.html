@@ -97,7 +97,7 @@
 <body>
 <div class="wrap">
   <h1>MI <span>AI</span> — Test Console</h1>
-  <div class="sub">miai-chi.vercel.app gateway tester · text / image / video</div>
+  <div class="sub">miai-chi.vercel.app gateway tester · text / image / video / music / agent / file-ocr-audio</div>
 
   <div class="top-bar">
     <div class="grow">
@@ -120,6 +120,9 @@
     <div class="tab active" data-tab="text" onclick="switchTab('text')">💬 Text Chat</div>
     <div class="tab" data-tab="image" onclick="switchTab('image')">🖼️ Image Gen</div>
     <div class="tab" data-tab="video" onclick="switchTab('video')">🎬 Video Gen</div>
+    <div class="tab" data-tab="music" onclick="switchTab('music')">🎵 Music Gen</div>
+    <div class="tab" data-tab="agent" onclick="switchTab('agent')">🤖 Agent Task</div>
+    <div class="tab" data-tab="files" onclick="switchTab('files')">📎 File/OCR/Audio</div>
   </div>
 
   <!-- TEXT -->
@@ -130,6 +133,8 @@
       <option value="miai-v2">miai-v2 — Qwen2.5-1.5B (Balanced)</option>
       <option value="miai-v3">miai-v3 — SmolLM2-1.7B (Multilingual)</option>
       <option value="miai-v4">miai-v4 — Phi-2 2.7B (Deep Reasoning)</option>
+      <option value="miai-call">miai-call — Qwen2.5-1.5B (Fast Call Assistant)</option>
+      <option value="miai-urdu">miai-urdu — Qwen2.5-1.5B (Urdu Text)</option>
     </select>
     <label class="field">Message</label>
     <textarea id="textPrompt" rows="3" placeholder="Salaam! Apna sawal yahan likho...">Salaam! Aap kaun ho?</textarea>
@@ -177,6 +182,48 @@
     <button class="run" id="vidBtn" onclick="runVideo()">Start Video Job</button>
     <div class="meta">Async job — gateway returns job_id immediately, then this page auto-polls /v1/videos/status/{job_id} every 10s. CPU render takes 5-15 min.</div>
     <div class="out empty" id="vidOut">Job status yahan dikhega.</div>
+  </div>
+
+  <!-- MUSIC -->
+  <div class="panel" id="panel-music">
+    <label class="field">Prompt (Urdu / Hinglish / English)</label>
+    <textarea id="musicPrompt" rows="2" placeholder="Ek pur-sukoon qawwali jaisi dhun, dholak aur harmonium ke sath">Ek pur-sukoon qawwali jaisi dhun, dholak aur harmonium ke sath</textarea>
+    <div class="row">
+      <div><label class="field">Duration (seconds)</label><input type="number" id="musicDuration" value="10" min="1" max="30"></div>
+    </div>
+    <button class="run" id="musicBtn" onclick="runMusic()">Generate Music</button>
+    <div class="meta">MusicGen Small on CPU — generation can take 30-90s depending on duration. Request timeout is 180s on gateway side.</div>
+    <div class="out empty" id="musicOut">Result yahan dikhega.</div>
+  </div>
+
+  <!-- AGENT -->
+  <div class="panel" id="panel-agent">
+    <label class="field">Task</label>
+    <textarea id="agentTask" rows="3" placeholder="Aaj ka USD to PKR exchange rate kya hai?">Aaj ka USD to PKR exchange rate kya hai?</textarea>
+    <label class="field">Force Web Search</label>
+    <select id="agentForceSearch">
+      <option value="auto">Auto-detect (default)</option>
+      <option value="true">Always search</option>
+      <option value="false">Never search</option>
+    </select>
+    <button class="run" id="agentBtn" onclick="runAgent()">Run Task</button>
+    <div class="meta">miai-agent decides whether to do a live web search (free, keyless DuckDuckGo) before answering. Sources are listed in the response if used.</div>
+    <div class="out empty" id="agentOut">Result yahan dikhega.</div>
+  </div>
+
+  <!-- FILES / OCR / AUDIO -->
+  <div class="panel" id="panel-files">
+    <label class="field">Image File (OCR / vision)</label>
+    <input type="file" id="fileImage" accept="image/*">
+    <label class="field">Audio File (transcription)</label>
+    <input type="file" id="fileAudio" accept="audio/*">
+    <label class="field">Instruction (for image)</label>
+    <textarea id="fileInstruction" rows="2" placeholder="Extract and describe all text and content from this image.">Extract and describe all text and content from this image.</textarea>
+    <label class="field">Language Hint (for audio, optional — e.g. ur, en)</label>
+    <input type="text" id="fileLangHint" placeholder="ur">
+    <button class="run" id="fileBtn" onclick="runFile()">Process File(s)</button>
+    <div class="meta">Combined OCR + audio engine (miai-file). Upload an image and/or audio file — both are processed in one request if both are provided.</div>
+    <div class="out empty" id="fileOut">Result yahan dikhega.</div>
   </div>
 </div>
 
@@ -383,6 +430,115 @@ function pollVideo(jobId){
       // network blip — keep trying
     }
   }, 10000);
+}
+
+// ---------- MUSIC ----------
+async function runMusic(){
+  if(!key()){ alert('API key daalo pehle.'); return; }
+  const btn = document.getElementById('musicBtn');
+  setBusy(btn, true, 'Generate Music');
+  showOut('musicOut', 'Generating... (CPU, can take 30-90s)', false);
+
+  const body = {
+    prompt: document.getElementById('musicPrompt').value,
+    duration: parseInt(document.getElementById('musicDuration').value)
+  };
+
+  try{
+    const res = await fetch(base() + '/v1/audio/music', {
+      method:'POST', headers: authHeaders(), body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!res.ok){ showOut('musicOut', data, true); setBusy(btn, false, 'Generate Music'); return; }
+
+    showOut('musicOut', data, false);
+    const dataUri = data?.audio_base64;
+    const url = data?.audio_url;
+    if(dataUri){
+      const audio = document.createElement('audio');
+      audio.className = 'result';
+      audio.controls = true;
+      audio.src = dataUri; // already a full data: URI
+      document.getElementById('musicOut').after(audio);
+    } else if(url){
+      const audio = document.createElement('audio');
+      audio.className = 'result';
+      audio.controls = true;
+      audio.src = url.startsWith('http') ? url : base() + url;
+      document.getElementById('musicOut').after(audio);
+    }
+  }catch(e){
+    showOut('musicOut', 'Request failed: ' + e.message, true);
+  }
+  setBusy(btn, false, 'Generate Music');
+}
+
+// ---------- AGENT ----------
+async function runAgent(){
+  if(!key()){ alert('API key daalo pehle.'); return; }
+  const btn = document.getElementById('agentBtn');
+  setBusy(btn, true, 'Run Task');
+
+  const forceVal = document.getElementById('agentForceSearch').value;
+  const body = {
+    task: document.getElementById('agentTask').value,
+    force_search: forceVal === 'auto' ? null : (forceVal === 'true')
+  };
+
+  try{
+    const res = await fetch(base() + '/v1/agent/tasks', {
+      method:'POST', headers: authHeaders(), body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    showOut('agentOut', data, !res.ok);
+  }catch(e){
+    showOut('agentOut', 'Request failed: ' + e.message, true);
+  }
+  setBusy(btn, false, 'Run Task');
+}
+
+// ---------- FILES / OCR / AUDIO ----------
+function fileToBase64(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function runFile(){
+  if(!key()){ alert('API key daalo pehle.'); return; }
+  const btn = document.getElementById('fileBtn');
+  const imgFile = document.getElementById('fileImage').files[0];
+  const audFile = document.getElementById('fileAudio').files[0];
+
+  if(!imgFile && !audFile){ alert('Image ya audio file select karo.'); return; }
+
+  setBusy(btn, true, 'Process File(s)');
+  showOut('fileOut', 'Processing...', false);
+
+  const body = {
+    instruction: document.getElementById('fileInstruction').value || undefined,
+    language_hint: document.getElementById('fileLangHint').value || undefined
+  };
+
+  try{
+    if(imgFile) body.image_b64 = await fileToBase64(imgFile);
+    if(audFile){
+      body.audio_b64 = await fileToBase64(audFile);
+      body.audio_format = (audFile.name.split('.').pop() || 'wav').toLowerCase();
+    }
+
+    const res = await fetch(base() + '/v1/files/process', {
+      method:'POST', headers: authHeaders(), body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    showOut('fileOut', data, !res.ok);
+  }catch(e){
+    showOut('fileOut', 'Request failed: ' + e.message, true);
+  }
+  setBusy(btn, false, 'Process File(s)');
 }
 </script>
 </body>

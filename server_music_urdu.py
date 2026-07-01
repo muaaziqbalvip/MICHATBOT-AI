@@ -17,6 +17,9 @@ app = FastAPI(title="MIAI Music Generator - Urdu Friendly")
 MODEL_PATH = os.getenv("MODEL_PATH", "./model_files/miai-music")
 PORT = int(os.getenv("PORT", 8002))
 NGROK_TOKEN = os.getenv("NGROK_AUTH_TOKEN", "")
+# HF_REPO env decides small vs large — set by the workflow that starts this server.
+# Falls back to "small" since that's the default fast workflow (miai_music.yml).
+HF_REPO = os.getenv("HF_REPO", "facebook/musicgen-small")
 
 # Urdu mood mappings
 URDU_MOOD_MAP = {
@@ -46,8 +49,8 @@ try:
         print(f"✅ Using local model from {MODEL_PATH}")
         model = MusicGen.get_model(MODEL_PATH)
     else:
-        print("⚠️ Local model not found, downloading from HuggingFace...")
-        model = MusicGen.get_model("facebook/musicgen-large")
+        print(f"⚠️ Local model not found, downloading {HF_REPO} from HuggingFace...")
+        model = MusicGen.get_model(HF_REPO)
     model.set_generation_params(use_sampling=True, top_k=250)
     print("✅ Model loaded successfully")
 except Exception as e:
@@ -106,7 +109,7 @@ def expand_urdu_prompt(prompt: str, mood: str = None) -> str:
 async def health():
     return {
         "status": "healthy",
-        "model": "facebook/musicgen-large",
+        "model": HF_REPO,
         "model_loaded": model is not None,
         "urdu_support": True,
         "timestamp": datetime.now().isoformat()
@@ -184,7 +187,7 @@ async def generate_music(request: MusicRequest):
             duration=duration,
             prompt_expanded=expanded_prompt,
             model_info={
-                "model": "MusicGen Large",
+                "model": HF_REPO,
                 "sample_rate": sample_rate,
                 "supports_urdu": True,
                 "supports_hinglish": True,
@@ -202,6 +205,12 @@ async def serve_audio(filename: str):
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Audio not found")
     return FileResponse(path, media_type="audio/wav")
+
+# Gateway calls this OpenAI-style path (matches /v1/chat/completions,
+# /v1/images/generations, /v1/videos/generations convention in api/index.py)
+@app.post("/v1/audio/music", response_model=MusicResponse)
+async def generate_music_v1(request: MusicRequest):
+    return await generate_music(request)
 
 @app.get("/moods")
 async def list_moods():
@@ -231,8 +240,7 @@ async def list_moods():
 @app.get("/info")
 async def info():
     return {
-        "model": "MusicGen Large",
-        "model_size": "3.3GB",
+        "model": HF_REPO,
         "max_duration": 30,
         "sample_rate": getattr(model, 'sample_rate', 32000) if model else 32000,
         "supported_formats": ["wav"],

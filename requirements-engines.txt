@@ -26,3 +26,26 @@ pillow
 imageio
 imageio-ffmpeg
 opencv-python-headless
+
+# ── Extra, used by server_music_urdu.py (miai-music / MusicGen Small) ──
+audiocraft
+scipy
+soundfile
+# Needs system ffmpeg (apt-get install ffmpeg) — handled in miai_music.yml
+
+# ── Extra, used by server_call.py (miai-call / fast call assistant) ──
+# No extra deps beyond the base text-model stack above.
+
+# ── Extra, used by server_urdu.py (miai-urdu / Urdu text model) ──
+# No extra deps beyond the base text-model stack above.
+
+# ── Extra, used by server_agent.py (miai-agent / online task agent) ──
+ddgs            # free, keyless web search (DuckDuckGo)
+
+# ── Extra, used by server_file.py (miai-file / OCR + audio + file processing) ──
+torchvision     # CPU build: --index-url https://download.pytorch.org/whl/cpu
+pillow
+qwen-vl-utils   # Qwen2.5-VL image preprocessing helpers
+soundfile
+librosa
+# Needs system ffmpeg (apt-get install ffmpeg) — handled in miai_file.yml

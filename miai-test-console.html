@@ -157,18 +157,38 @@
 
   <!-- LIVE CALL -->
   <div class="panel" id="panel-call">
-    <label class="field">🎤 Audio Recording for Live Call</label>
+    <label class="field">☎️ Live AI Call (Real-time Voice Conversation)</label>
+    
     <div style="display:flex; gap:10px; margin-bottom:14px;">
-      <button class="run" id="callRecordBtn" onclick="startRecording()" style="flex:1;">🔴 Start Recording</button>
-      <button class="secondary" id="callStopBtn" onclick="stopRecording()" disabled style="flex:1;">⏹️ Stop & Send</button>
+      <button class="run" id="callStartBtn" onclick="initLiveCall()" style="flex:1;">✅ Start Call</button>
+      <button class="secondary" id="callEndBtn" onclick="endLiveCall()" disabled style="flex:1;">❌ End Call</button>
     </div>
-    <div class="meta" id="callTimer">Recording time: 0s</div>
-    <label class="field">Transcribed text:</label>
-    <textarea id="callTranscript" rows="2" readonly placeholder="Your speech will appear here..."></textarea>
-    <label class="field">AI Call Response:</label>
-    <textarea id="callResponse" rows="3" readonly placeholder="AI's response will appear here..."></textarea>
-    <div class="meta">Uses miai-call model (fast, short replies) with Whisper transcription. Click record, speak your question, click stop — it will transcribe + get AI response automatically.</div>
-    <div class="out empty" id="callOut">Call details / errors yahan dikhega.</div>
+
+    <label class="field">Call Status:</label>
+    <div id="callStatus" style="background:#0d1420; border:1px solid var(--border); border-radius:8px; padding:10px; margin-bottom:10px; font-size:.85rem; color:var(--muted);">
+      🔴 Not connected
+    </div>
+
+    <label class="field">Listening...</label>
+    <div id="callWaveform" style="background:#070b11; border:1px solid var(--border); border-radius:8px; padding:14px; margin-bottom:10px; text-align:center; color:var(--muted); font-size:.85rem; min-height:60px; display:flex; align-items:center; justify-content:center;">
+      🎤 Waiting for speech...
+    </div>
+
+    <label class="field">Your Speech (Transcribed):</label>
+    <textarea id="callYourSpeech" rows="2" readonly style="background:#0d1420; color:#34d399;"></textarea>
+
+    <label class="field">AI Response:</label>
+    <textarea id="callAIResponse" rows="3" readonly style="background:#0d1420; color:#7dd3fc;"></textarea>
+
+    <div class="row" style="margin-top:12px;">
+      <button class="secondary" onclick="playLastResponse()">🔊 Play Response</button>
+      <button class="secondary" onclick="clearCallLog()">🗑️ Clear</button>
+    </div>
+
+    <label class="field" style="margin-top:14px;">Call History:</label>
+    <div class="chat-log" id="callHistory" style="max-height:300px;"></div>
+
+    <div class="meta">Uses Web Speech API (browser built-in) for speech recognition + miai-call AI model + browser text-to-speech for voice output. Real live conversation! 🎙️</div>
   </div>
 
   <!-- IMAGE -->
@@ -287,97 +307,170 @@ function showOut(elId, content, isError){
   el.textContent = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
 }
 
-// ---------- LIVE CALL ----------
-let mediaRecorder = null;
-let audioChunks = [];
-let recordStartTime = 0;
-let timerInterval = null;
+// ---------- LIVE CALL (Web Speech API + Text-to-Speech) ----------
+let recognition = null;
+let isCallActive = false;
+let callHistory = [];
 
-async function startRecording(){
-  if(!key()){ alert('API key daalo pehle.'); return; }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
-    mediaRecorder = new MediaRecorder(stream);
-    audioChunks = [];
-    recordStartTime = Date.now();
-
-    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
-    mediaRecorder.onstart = () => {
-      document.getElementById('callRecordBtn').disabled = true;
-      document.getElementById('callStopBtn').disabled = false;
-      document.getElementById('callTranscript').value = '';
-      document.getElementById('callResponse').value = '';
-      timerInterval = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - recordStartTime) / 1000);
-        document.getElementById('callTimer').textContent = `Recording time: ${elapsed}s`;
-      }, 100);
-    };
-    mediaRecorder.start();
-  }catch(e){
-    showOut('callOut', 'Microphone error: ' + e.message, true);
+function initWebSpeech(){
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SpeechRecognition){
+    showOut('callStatus', '❌ Speech Recognition not supported in this browser. Use Chrome/Edge.', true);
+    return null;
   }
+  const rec = new SpeechRecognition();
+  rec.continuous = false;
+  rec.interimResults = true;
+  rec.lang = 'ur-PK';  // Urdu default, browser will handle Roman Urdu/English too
+  return rec;
 }
 
-async function stopRecording(){
-  if(!mediaRecorder) return;
-  mediaRecorder.stop();
-  clearInterval(timerInterval);
-  document.getElementById('callRecordBtn').disabled = false;
-  document.getElementById('callStopBtn').disabled = true;
+async function initLiveCall(){
+  if(!key()){ alert('API key daalo pehle.'); return; }
+  if(isCallActive){ alert('Call already active!'); return; }
 
-  mediaRecorder.onstop = async () => {
-    const audioBlob = new Blob(audioChunks, {type: 'audio/wav'});
-    const audioB64 = await blobToBase64(audioBlob);
+  recognition = initWebSpeech();
+  if(!recognition) return;
 
-    // Step 1: Transcribe with Whisper via /v1/files/process
-    showOut('callOut', 'Transcribing audio...', false);
+  isCallActive = true;
+  document.getElementById('callStartBtn').disabled = true;
+  document.getElementById('callEndBtn').disabled = false;
+  document.getElementById('callStatus').innerHTML = '🟢 Call Active — Listening...';
+  document.getElementById('callYourSpeech').value = '';
+  document.getElementById('callAIResponse').value = '';
+
+  startListening();
+}
+
+function startListening(){
+  if(!recognition || !isCallActive) return;
+
+  document.getElementById('callWaveform').innerHTML = '🎤 Listening... (speak now)';
+  document.getElementById('callYourSpeech').value = '';
+
+  let finalTranscript = '';
+
+  recognition.onstart = () => {
+    document.getElementById('callStatus').innerHTML = '🟢 Listening...';
+  };
+
+  recognition.onresult = (event) => {
+    let interimTranscript = '';
+    for(let i = event.resultIndex; i < event.results.length; i++){
+      const transcript = event.results[i][0].transcript;
+      if(event.results[i].isFinal) finalTranscript += transcript + ' ';
+      else interimTranscript += transcript;
+    }
+    
+    const display = finalTranscript + interimTranscript;
+    document.getElementById('callYourSpeech').value = display;
+    document.getElementById('callWaveform').innerHTML = '🎤 ' + (display || 'Listening...');
+  };
+
+  recognition.onerror = (event) => {
+    document.getElementById('callStatus').innerHTML = '❌ Error: ' + event.error;
+    document.getElementById('callWaveform').innerHTML = '❌ Error: ' + event.error;
+  };
+
+  recognition.onend = async () => {
+    finalTranscript = finalTranscript.trim();
+    if(!finalTranscript){
+      document.getElementById('callStatus').innerHTML = '🟡 No speech detected. Try again.';
+      document.getElementById('callWaveform').innerHTML = '❌ No speech heard. Tap Start Call to try again.';
+      if(isCallActive) setTimeout(() => startListening(), 1500);
+      return;
+    }
+
+    // Got transcript — now get AI response
+    document.getElementById('callStatus').innerHTML = '⏳ Getting AI response...';
+    document.getElementById('callWaveform').innerHTML = '⏳ AI thinking...';
+
     try {
-      const transRes = await fetch(base() + '/v1/files/process', {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({audio_b64: audioB64, audio_format: 'wav', language_hint: 'ur'})
-      });
-      const transData = await transRes.json();
-      const transcript = transData.transcription || '';
-      document.getElementById('callTranscript').value = transcript;
-
-      if(!transcript){
-        showOut('callOut', 'No speech detected. Try again.', true);
-        return;
-      }
-
-      // Step 2: Get AI response from miai-call
-      showOut('callOut', 'Getting AI response...', false);
       const aiRes = await fetch(base() + '/v1/chat/completions', {
         method: 'POST',
         headers: authHeaders(),
         body: JSON.stringify({
           model: 'miai-call',
-          messages: [{role: 'user', content: transcript}],
+          messages: [{role: 'user', content: finalTranscript}],
           temperature: 0.6,
           max_tokens: 120
         })
       });
       const aiData = await aiRes.json();
-      const response = aiData?.choices?.[0]?.message?.content || 'Error getting response';
-      document.getElementById('callResponse').value = response;
-      showOut('callOut', aiData, false);
+      const aiResponse = aiData?.choices?.[0]?.message?.content || 'Sorry, no response.';
+      document.getElementById('callAIResponse').value = aiResponse;
+
+      // Add to history
+      callHistory.push({you: finalTranscript, ai: aiResponse});
+      appendCallHistory(finalTranscript, aiResponse);
+
+      // Speak response
+      speakResponse(aiResponse);
+
+      document.getElementById('callStatus').innerHTML = '🟢 Response ready. Click again to continue or End Call.';
+      document.getElementById('callWaveform').innerHTML = '✅ Response ready';
+
+      // Auto-continue listening if call still active
+      if(isCallActive) setTimeout(() => startListening(), 2000);
     }catch(e){
-      showOut('callOut', 'Error: ' + e.message, true);
+      document.getElementById('callStatus').innerHTML = '❌ Error: ' + e.message;
+      document.getElementById('callWaveform').innerHTML = '❌ Network error';
+      if(isCallActive) setTimeout(() => startListening(), 2000);
     }
   };
 
-  // Stop all audio tracks
-  mediaRecorder.stream.getTracks().forEach(track => track.stop());
+  recognition.start();
 }
 
-function blobToBase64(blob){
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
+function speakResponse(text){
+  const synth = window.speechSynthesis;
+  synth.cancel();  // Stop any ongoing speech
+  
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'ur-PK';  // Urdu voice
+  utterance.rate = 0.9;
+  utterance.pitch = 1.0;
+  utterance.volume = 1.0;
+
+  synth.speak(utterance);
+}
+
+function appendCallHistory(yourText, aiText){
+  const histDiv = document.getElementById('callHistory');
+  const userMsg = document.createElement('div');
+  userMsg.className = 'msg user';
+  userMsg.textContent = yourText;
+  histDiv.appendChild(userMsg);
+
+  const aiMsg = document.createElement('div');
+  aiMsg.className = 'msg bot';
+  aiMsg.textContent = aiText;
+  histDiv.appendChild(aiMsg);
+  
+  histDiv.scrollTop = histDiv.scrollHeight;
+}
+
+function playLastResponse(){
+  const text = document.getElementById('callAIResponse').value;
+  if(!text){ alert('No response to play.'); return; }
+  speakResponse(text);
+}
+
+function clearCallLog(){
+  callHistory = [];
+  document.getElementById('callHistory').innerHTML = '';
+  document.getElementById('callYourSpeech').value = '';
+  document.getElementById('callAIResponse').value = '';
+}
+
+function endLiveCall(){
+  if(recognition) recognition.abort();
+  isCallActive = false;
+  document.getElementById('callStartBtn').disabled = false;
+  document.getElementById('callEndBtn').disabled = true;
+  document.getElementById('callStatus').innerHTML = '🔴 Call Ended';
+  document.getElementById('callWaveform').innerHTML = '☎️ Call ended. Click Start Call to begin again.';
+  window.speechSynthesis.cancel();
 }
 
 // ---------- TEXT ----------

@@ -97,7 +97,7 @@
 <body>
 <div class="wrap">
   <h1>MI <span>AI</span> — Test Console</h1>
-  <div class="sub">miai-chi.vercel.app gateway tester · text / image / video / music / agent / file-ocr-audio</div>
+  <div class="sub">miai-chi.vercel.app gateway tester · text / live call / image / video / music / agent / file-ocr-audio</div>
 
   <div class="top-bar">
     <div class="grow">
@@ -118,6 +118,7 @@
 
   <div class="tabs">
     <div class="tab active" data-tab="text" onclick="switchTab('text')">💬 Text Chat</div>
+    <div class="tab" data-tab="call" onclick="switchTab('call')">☎️ Live Call</div>
     <div class="tab" data-tab="image" onclick="switchTab('image')">🖼️ Image Gen</div>
     <div class="tab" data-tab="video" onclick="switchTab('video')">🎬 Video Gen</div>
     <div class="tab" data-tab="music" onclick="switchTab('music')">🎵 Music Gen</div>
@@ -152,6 +153,22 @@
     <button class="secondary" onclick="clearChat()">Clear</button>
     <div class="chat-log" id="chatLog"></div>
     <div class="out empty" id="textOut">Response JSON / errors yahan dikhega.</div>
+  </div>
+
+  <!-- LIVE CALL -->
+  <div class="panel" id="panel-call">
+    <label class="field">🎤 Audio Recording for Live Call</label>
+    <div style="display:flex; gap:10px; margin-bottom:14px;">
+      <button class="run" id="callRecordBtn" onclick="startRecording()" style="flex:1;">🔴 Start Recording</button>
+      <button class="secondary" id="callStopBtn" onclick="stopRecording()" disabled style="flex:1;">⏹️ Stop & Send</button>
+    </div>
+    <div class="meta" id="callTimer">Recording time: 0s</div>
+    <label class="field">Transcribed text:</label>
+    <textarea id="callTranscript" rows="2" readonly placeholder="Your speech will appear here..."></textarea>
+    <label class="field">AI Call Response:</label>
+    <textarea id="callResponse" rows="3" readonly placeholder="AI's response will appear here..."></textarea>
+    <div class="meta">Uses miai-call model (fast, short replies) with Whisper transcription. Click record, speak your question, click stop — it will transcribe + get AI response automatically.</div>
+    <div class="out empty" id="callOut">Call details / errors yahan dikhega.</div>
   </div>
 
   <!-- IMAGE -->
@@ -268,6 +285,99 @@ function showOut(elId, content, isError){
   el.classList.remove('empty');
   el.classList.toggle('err', !!isError);
   el.textContent = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+}
+
+// ---------- LIVE CALL ----------
+let mediaRecorder = null;
+let audioChunks = [];
+let recordStartTime = 0;
+let timerInterval = null;
+
+async function startRecording(){
+  if(!key()){ alert('API key daalo pehle.'); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    mediaRecorder = new MediaRecorder(stream);
+    audioChunks = [];
+    recordStartTime = Date.now();
+
+    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+    mediaRecorder.onstart = () => {
+      document.getElementById('callRecordBtn').disabled = true;
+      document.getElementById('callStopBtn').disabled = false;
+      document.getElementById('callTranscript').value = '';
+      document.getElementById('callResponse').value = '';
+      timerInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - recordStartTime) / 1000);
+        document.getElementById('callTimer').textContent = `Recording time: ${elapsed}s`;
+      }, 100);
+    };
+    mediaRecorder.start();
+  }catch(e){
+    showOut('callOut', 'Microphone error: ' + e.message, true);
+  }
+}
+
+async function stopRecording(){
+  if(!mediaRecorder) return;
+  mediaRecorder.stop();
+  clearInterval(timerInterval);
+  document.getElementById('callRecordBtn').disabled = false;
+  document.getElementById('callStopBtn').disabled = true;
+
+  mediaRecorder.onstop = async () => {
+    const audioBlob = new Blob(audioChunks, {type: 'audio/wav'});
+    const audioB64 = await blobToBase64(audioBlob);
+
+    // Step 1: Transcribe with Whisper via /v1/files/process
+    showOut('callOut', 'Transcribing audio...', false);
+    try {
+      const transRes = await fetch(base() + '/v1/files/process', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({audio_b64: audioB64, audio_format: 'wav', language_hint: 'ur'})
+      });
+      const transData = await transRes.json();
+      const transcript = transData.transcription || '';
+      document.getElementById('callTranscript').value = transcript;
+
+      if(!transcript){
+        showOut('callOut', 'No speech detected. Try again.', true);
+        return;
+      }
+
+      // Step 2: Get AI response from miai-call
+      showOut('callOut', 'Getting AI response...', false);
+      const aiRes = await fetch(base() + '/v1/chat/completions', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({
+          model: 'miai-call',
+          messages: [{role: 'user', content: transcript}],
+          temperature: 0.6,
+          max_tokens: 120
+        })
+      });
+      const aiData = await aiRes.json();
+      const response = aiData?.choices?.[0]?.message?.content || 'Error getting response';
+      document.getElementById('callResponse').value = response;
+      showOut('callOut', aiData, false);
+    }catch(e){
+      showOut('callOut', 'Error: ' + e.message, true);
+    }
+  };
+
+  // Stop all audio tracks
+  mediaRecorder.stream.getTracks().forEach(track => track.stop());
+}
+
+function blobToBase64(blob){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 // ---------- TEXT ----------

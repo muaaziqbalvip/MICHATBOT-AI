@@ -1,14 +1,18 @@
 """
-MI AI Gateway v3.0 — Vercel API (api/index.py)
-4 models support: miai-v1, miai-v2, miai-v3, miai-v4
+MI AI Gateway v3.1 — Vercel API (api/index.py)
+Core 4 models: miai-v1, miai-v2, miai-v3, miai-v4
+Specialist text models: miai-call, miai-file, miai-agent, miai-urdu
+Media engines: miai-img, miai-video, miai-music
 Auto-routing: model name se sahi GitHub server pe forward karta hai.
 
-WHAT CHANGED IN v3.0
-- Dashboard fully redesigned: control-room look, live token/sec + latency
-  readouts per model, clearer online/offline state, same lock-code flow.
-- Gateway / routing / auth logic untouched — this still talks to the same
-  server.py engines via the same MODEL_URLS env vars, so nothing else in
-  your pipeline needs to change.
+WHAT CHANGED IN v3.1
+- Added miai-music gateway route (/v1/audio/music), fixed music engine
+  (was pointing at a missing server_music.py / wrong model size).
+- Added 4 new specialist engines: miai-call (fast call assistant),
+  miai-file (combined OCR + audio + file processing), miai-agent
+  (online/tool-use tasks), miai-urdu (dedicated Urdu text model).
+- Dashboard updated to show all engines across 2 sections.
+- Gateway / routing / auth logic otherwise untouched.
 """
 
 import os
@@ -54,6 +58,20 @@ MEDIA_URLS = {
     "miai-video": os.getenv("MIAI_VIDEO_URL", ""),
 }
 
+# Audio engines (music gen — separate dict, separate request/response shape)
+AUDIO_URLS = {
+    "miai-music": os.getenv("MIAI_MUSIC_URL", ""),
+}
+
+# Extra specialist text-models — same /v1/chat/completions shape as MODEL_URLS,
+# but routed separately so they show in their own dashboard section.
+SPECIAL_URLS = {
+    "miai-call": os.getenv("MIAI_CALL_URL", ""),      # fast call assistant
+    "miai-file": os.getenv("MIAI_FILE_URL", ""),      # OCR + audio + file processing
+    "miai-agent": os.getenv("MIAI_AGENT_URL", ""),    # online/tool-use tasks
+    "miai-urdu": os.getenv("MIAI_URDU_URL", ""),      # dedicated Urdu text model
+}
+
 LOCK_CODE = "muaaz19720"
 
 MODEL_META = {
@@ -68,11 +86,22 @@ MEDIA_META = {
     "miai-video": {"name": "text-to-video-ms-1.7b", "badge": "Video Gen (slow, CPU)", "accent": "#f472b6"},
 }
 
+AUDIO_META = {
+    "miai-music": {"name": "MusicGen Small", "badge": "Music Gen", "accent": "#a3e635"},
+}
+
+SPECIAL_META = {
+    "miai-call": {"name": "Qwen2.5-1.5B-Instruct", "badge": "Call Assistant (Balanced+Fast)", "accent": "#38bdf8"},
+    "miai-file": {"name": "Qwen2.5-VL-3B-Instruct + Whisper-small", "badge": "File / OCR / Audio Processing", "accent": "#fb923c"},
+    "miai-agent": {"name": "Qwen2.5-3B-Instruct", "badge": "Online Tool-Use Agent", "accent": "#a78bfa"},
+    "miai-urdu": {"name": "Qwen2.5-1.5B-Instruct (Urdu-primed)", "badge": "Urdu Text", "accent": "#34d399"},
+}
+
 # ─── Admin Dashboard ─────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     model_cards = ""
-    for mid, meta in MODEL_META.items():
+    for mid, meta in {**MODEL_META, **SPECIAL_META}.items():
         model_cards += f"""
         <div class="unit" id="card-{mid}" style="--accent:{meta['accent']}">
           <div class="unit-top">
@@ -89,7 +118,7 @@ async def dashboard():
         """
 
     media_cards = ""
-    for mid, meta in MEDIA_META.items():
+    for mid, meta in {**MEDIA_META, **AUDIO_META}.items():
         media_cards += f"""
         <div class="unit" id="card-{mid}" style="--accent:{meta['accent']}">
           <div class="unit-top">
@@ -239,7 +268,7 @@ async def dashboard():
       <div class="section-label">Live Engines</div>
       <div class="grid">{model_cards}</div>
 
-      <div class="section-label">Media Engines (Image / Video)</div>
+      <div class="section-label">Media Engines (Image / Video / Music)</div>
       <div class="grid">{media_cards}</div>
 
       <div class="section-label">API Key</div>
@@ -286,7 +315,7 @@ async def dashboard():
     }}
 
     function checkAll() {{
-      ['miai-v1','miai-v2','miai-v3','miai-v4','miai-img','miai-video'].forEach(checkStatus);
+      ['miai-v1','miai-v2','miai-v3','miai-v4','miai-call','miai-file','miai-agent','miai-urdu','miai-img','miai-video','miai-music'].forEach(checkStatus);
     }}
 
     function genKey() {{
@@ -312,7 +341,7 @@ async def dashboard():
 @app.get("/api/status")
 async def status_all():
     result = {}
-    for mid, url in {**MODEL_URLS, **MEDIA_URLS}.items():
+    for mid, url in {**MODEL_URLS, **SPECIAL_URLS, **MEDIA_URLS, **AUDIO_URLS}.items():
         if not url:
             result[mid] = {"online": False, "reason": "URL not set"}
             continue
@@ -325,7 +354,7 @@ async def status_all():
 
 @app.get("/api/status/{model_id}")
 async def status_model(model_id: str):
-    url = MODEL_URLS.get(model_id) or MEDIA_URLS.get(model_id)
+    url = MODEL_URLS.get(model_id) or SPECIAL_URLS.get(model_id) or MEDIA_URLS.get(model_id) or AUDIO_URLS.get(model_id)
     if not url:
         return {"online": False, "model": model_id, "reason": "URL not configured"}
     try:
@@ -344,8 +373,13 @@ async def list_models():
             {"id": "miai-v2", "description": "Qwen2.5-1.5B — Balanced speed + quality"},
             {"id": "miai-v3", "description": "SmolLM2-1.7B — Smart multilingual"},
             {"id": "miai-v4", "description": "Phi-2 2.7B — Deep reasoning + coding"},
+            {"id": "miai-call", "description": "Qwen2.5-1.5B-Instruct — Fast+balanced AI Call assistant"},
+            {"id": "miai-file", "description": "Qwen2.5-VL-3B-Instruct + Whisper-small — File/OCR/Audio processing"},
+            {"id": "miai-agent", "description": "Qwen2.5-3B-Instruct — Online task / tool-use agent"},
+            {"id": "miai-urdu", "description": "Qwen2.5-1.5B-Instruct (Urdu-primed) — Dedicated Urdu text model"},
             {"id": "miai-img", "description": "SDXL-Turbo — Image generation (1-2 min/image, CPU)"},
             {"id": "miai-video", "description": "text-to-video-ms-1.7b — Video generation (5-15 min/video, CPU)"},
+            {"id": "miai-music", "description": "MusicGen Small — Music generation (Urdu/Hinglish/English prompts)"},
         ]
     }
 
@@ -366,12 +400,14 @@ async def chat_completions(request: Request):
 
     body = await request.json()
 
-    # Model selection — default miai-v1
+    # Model selection — default miai-v1. Allow both the core 4 chat models
+    # and the new specialist text models (call/file/agent/urdu) on this same route.
     requested_model = body.get("model", "miai-v1")
-    if requested_model not in MODEL_URLS:
+    combined_text_urls = {**MODEL_URLS, **SPECIAL_URLS}
+    if requested_model not in combined_text_urls:
         requested_model = "miai-v1"
 
-    target_url = MODEL_URLS.get(requested_model, "")
+    target_url = combined_text_urls.get(requested_model, "")
     if not target_url:
         raise HTTPException(503, f"{requested_model} is currently offline. Check GitHub Actions.")
 
@@ -463,3 +499,79 @@ async def video_status(job_id: str):
     if not job:
         raise HTTPException(404, "Unknown job_id (may have expired after a redeploy/cold start).")
     return job
+
+# ─── Music Generation Gateway ────────────────────────────────────────────────────
+@app.post("/v1/audio/music")
+async def audio_music(request: Request):
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(401, "Missing Authorization header")
+    token = auth.split(" ", 1)[1]
+    if not validate_key(token):
+        raise HTTPException(403, "Invalid MI AI API Key")
+
+    body = await request.json()
+    target_url = AUDIO_URLS.get("miai-music", "")
+    if not target_url:
+        raise HTTPException(503, "miai-music is currently offline. Check GitHub Actions.")
+
+    endpoint = f"{target_url.rstrip('/')}/generate"
+    try:
+        # MusicGen on CPU: up to 30s of audio takes a while, give it headroom
+        resp = requests.post(endpoint, json=body, timeout=180)
+        return resp.json()
+    except requests.Timeout:
+        raise HTTPException(504, "Music generation timed out (CPU is slow). Try a shorter duration.")
+    except Exception as e:
+        raise HTTPException(500, f"Gateway error: {str(e)}")
+
+# ─── File / OCR / Audio Processing Gateway ───────────────────────────────────────
+# Single combined endpoint: accepts text + optional base64 image (OCR/vision) and/or
+# base64 audio (transcription) in one request, all handled by the miai-file engine.
+@app.post("/v1/files/process")
+async def files_process(request: Request):
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(401, "Missing Authorization header")
+    token = auth.split(" ", 1)[1]
+    if not validate_key(token):
+        raise HTTPException(403, "Invalid MI AI API Key")
+
+    body = await request.json()
+    target_url = SPECIAL_URLS.get("miai-file", "")
+    if not target_url:
+        raise HTTPException(503, "miai-file is currently offline. Check GitHub Actions.")
+
+    endpoint = f"{target_url.rstrip('/')}/v1/files/process"
+    try:
+        # OCR + Whisper can be slow on CPU for larger files
+        resp = requests.post(endpoint, json=body, timeout=180)
+        return resp.json()
+    except requests.Timeout:
+        raise HTTPException(504, "File processing timed out (CPU is slow). Try a smaller file.")
+    except Exception as e:
+        raise HTTPException(500, f"Gateway error: {str(e)}")
+
+# ─── Online Task / Agent Gateway ─────────────────────────────────────────────────
+@app.post("/v1/agent/tasks")
+async def agent_tasks(request: Request):
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(401, "Missing Authorization header")
+    token = auth.split(" ", 1)[1]
+    if not validate_key(token):
+        raise HTTPException(403, "Invalid MI AI API Key")
+
+    body = await request.json()
+    target_url = SPECIAL_URLS.get("miai-agent", "")
+    if not target_url:
+        raise HTTPException(503, "miai-agent is currently offline. Check GitHub Actions.")
+
+    endpoint = f"{target_url.rstrip('/')}/v1/agent/tasks"
+    try:
+        resp = requests.post(endpoint, json=body, timeout=120)
+        return resp.json()
+    except requests.Timeout:
+        raise HTTPException(504, "Agent task timed out. Try a simpler task.")
+    except Exception as e:
+        raise HTTPException(500, f"Gateway error: {str(e)}")

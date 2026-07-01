@@ -1,0 +1,109 @@
+name: "miai-call | Qwen2.5-1.5B | Fast AI Call Assistant"
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  miai-call-engine:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    env:
+      MODEL_NAME: "miai-call"
+      HF_REPO: "Qwen/Qwen2.5-1.5B-Instruct"
+      CACHE_KEY: "miai-call-qwen15b-v1"
+
+    steps:
+      - name: "📥 Checkout"
+        uses: actions/checkout@v4
+
+      - name: "🐍 Python 3.10 Setup"
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: "📦 Cache Model Files"
+        id: cache-model
+        uses: actions/cache@v4
+        with:
+          path: ./model_files/miai-call
+          key: ${{ env.CACHE_KEY }}-${{ runner.os }}
+
+      - name: "⬇️ Download Qwen2.5-1.5B-Instruct"
+        if: steps.cache-model.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ./model_files/miai-call
+          pip install -U "huggingface_hub"
+          hf download Qwen/Qwen2.5-1.5B-Instruct \
+            --local-dir ./model_files/miai-call \
+            --exclude "*.gguf" --exclude "*.onnx*"
+
+      - name: "📦 Install Python Dependencies"
+        run: |
+          python -m pip install --upgrade pip
+          pip install fastapi==0.110.0 uvicorn==0.28.0 pyngrok requests
+          pip install transformers==4.45.0 accelerate
+          pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
+
+      - name: "🚀 Start miai-call Engine"
+        env:
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_NAME: ${{ secrets.VERCEL_PROJECT_NAME }}
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+          MODEL_PATH: "./model_files/miai-call"
+          PORT: "8003"
+        run: |
+          python server_call.py > server.log 2>&1 &
+          SERVER_PID=$!
+          echo "Server started (PID: $SERVER_PID)"
+
+          echo "⏳ Loading model..."
+          sleep 40
+
+          echo "🔍 Health check..."
+          for i in {1..15}; do
+            if curl -sf http://127.0.0.1:8003/health > /dev/null 2>&1; then
+              echo "✅ Server is healthy"
+              break
+            fi
+            echo "Wait $i/15..."
+            sleep 5
+          done
+
+          sleep 5
+          PUBLIC_URL=$(curl -sf http://127.0.0.1:4040/api/tunnels 2>/dev/null | grep -o '"public_url":"https://[^"]*' | cut -d'"' -f4 | head -1)
+
+          if [ -z "$PUBLIC_URL" ]; then
+            echo "❌ Failed to get URL"
+            cat server.log
+            exit 1
+          fi
+          echo "🌐 Public URL: $PUBLIC_URL"
+
+          echo "🔄 Syncing to Vercel..."
+          curl -s -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}/env/MIAI_CALL_URL" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" > /dev/null
+
+          ENV_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_NAME}/env" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"key\":\"MIAI_CALL_URL\",\"value\":\"${PUBLIC_URL}\",\"type\":\"plain\",\"target\":[\"production\",\"preview\",\"development\"]}")
+          HTTP_CODE=$(echo "$ENV_RESP" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
+          echo "Vercel env update HTTP $HTTP_CODE"
+
+          if [ -n "${VERCEL_DEPLOY_HOOK_URL}" ]; then
+            curl -X POST "${VERCEL_DEPLOY_HOOK_URL}" 2>/dev/null && echo "✅ Redeploy triggered"
+          fi
+
+          echo "⏱️ Running for 5hr 40min..."
+          sleep 20100
+
+          curl -X POST "https://api.github.com/repos/${{ github.repository }}/actions/workflows/miai_call.yml/dispatches" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            -d '{"ref":"main"}' 2>/dev/null
+
+          wait $SERVER_PID

@@ -8,12 +8,12 @@ on:
 jobs:
   miai-music-engine:
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 350
 
     env:
       MODEL_NAME: "miai-music"
       HF_REPO: "facebook/musicgen-small"
-      CACHE_KEY: "miai-music-musicgensmall-v1"
+      CACHE_KEY: "miai-music-musicgensmall-v2"
 
     steps:
       - name: "📥 Checkout"
@@ -46,8 +46,17 @@ jobs:
 
       - name: "📚 Install System Dependencies (FFmpeg)"
         run: |
-          apt-get update -qq
-          apt-get install -y -qq libavformat-dev libavcodec-dev libavdevice-dev libavutil-dev libavfilter-dev libswscale-dev libswresample-dev pkg-config
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            ffmpeg \
+            libavformat-dev \
+            libavcodec-dev \
+            libavdevice-dev \
+            libavutil-dev \
+            libavfilter-dev \
+            libswscale-dev \
+            libswresample-dev \
+            pkg-config
 
       - name: "📦 Install Python Dependencies"
         run: |
@@ -55,7 +64,7 @@ jobs:
           pip install fastapi==0.110.0 uvicorn==0.28.0 pyngrok requests
           pip install transformers==4.45.0 accelerate
           pip install torch==2.3.1 --index-url https://download.pytorch.org/whl/cpu
-          pip install audiocraft scipy
+          pip install audiocraft scipy soundfile
 
       - name: "🚀 Start miai-music Engine"
         env:
@@ -63,7 +72,6 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_PROJECT_NAME: ${{ secrets.VERCEL_PROJECT_NAME }}
           VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
-          VERCEL_TEAM_SLUG: ${{ secrets.VERCEL_TEAM_SLUG }}
           MODEL_PATH: "./model_files/miai-music"
           PORT: "8002"
         run: |
@@ -74,7 +82,7 @@ jobs:
 
           # Wait for model loading
           echo "⏳ Loading MusicGen model..."
-          sleep 45
+          sleep 60
 
           # Health check
           echo "🔍 Health check..."
@@ -100,24 +108,40 @@ jobs:
 
           echo "🌐 Public URL: $PUBLIC_URL"
 
-          # ⚠️ Vercel API env sync skipped (project name config issue)
-          # Workaround: set MIAI_MUSIC_URL manually in Vercel dashboard
-          echo "🔄 Manual Setup Required:"
-          echo "   1. Go to Vercel Dashboard → Your Project → Settings → Environment Variables"
-          echo "   2. Add/Update: MIAI_MUSIC_URL = $PUBLIC_URL"
-          echo "   3. Target: Production, Preview, Development"
+          # Sync to Vercel (same pattern as miai_img.yml — delete-then-create)
+          echo "🔄 Syncing to Vercel..."
+          DEL_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X DELETE "https://api.vercel.com/v9/projects/${VERCEL_PROJECT_NAME}/env/MIAI_MUSIC_URL" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}")
+          DEL_CODE=$(echo "$DEL_RESP" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
+          if [ "$DEL_CODE" = "204" ] || [ "$DEL_CODE" = "404" ]; then
+            echo "✓ Old MIAI_MUSIC_URL deleted or didn't exist (HTTP $DEL_CODE)"
+          else
+            echo "⚠️ DELETE failed with HTTP $DEL_CODE — will try to CREATE anyway"
+          fi
 
-          # Trigger Vercel redeploy via webhook
+          ENV_RESP=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "https://api.vercel.com/v10/projects/${VERCEL_PROJECT_NAME}/env" \
+            -H "Authorization: Bearer ${VERCEL_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"key\":\"MIAI_MUSIC_URL\",\"value\":\"${PUBLIC_URL}\",\"type\":\"plain\",\"target\":[\"production\",\"preview\",\"development\"]}")
+          HTTP_CODE=$(echo "$ENV_RESP" | grep -o "HTTP_STATUS:[0-9]*" | cut -d: -f2)
+          ENV_BODY=$(echo "$ENV_RESP" | sed "s/HTTP_STATUS:[0-9]*//")
+          if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ]; then
+            echo "✅ Vercel env updated (HTTP $HTTP_CODE)"
+          else
+            echo "❌ Vercel env update FAILED (HTTP $HTTP_CODE)"
+            echo "Response: $ENV_BODY"
+          fi
+
           if [ -n "${VERCEL_DEPLOY_HOOK_URL}" ]; then
             echo "🚀 Triggering Vercel redeploy..."
             curl -X POST "${VERCEL_DEPLOY_HOOK_URL}" 2>/dev/null && echo "✅ Redeploy triggered"
           else
-            echo "⚠️ VERCEL_DEPLOY_HOOK_URL secret not set"
+            echo "⚠️ VERCEL_DEPLOY_HOOK_URL secret not set — function will keep using the OLD env var until next manual redeploy"
           fi
 
           # Keep alive
-          echo "⏱️ Running for 5hr..."
-          sleep 18000
+          echo "⏱️ Running for 5hr 40min..."
+          sleep 20100
 
           # Auto-trigger next run
           curl -X POST "https://api.github.com/repos/${{ github.repository }}/actions/workflows/miai_music.yml/dispatches" \
